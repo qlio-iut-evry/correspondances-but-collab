@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Connexion — Correspondances BUT</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0 }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d5a8e 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 40px 36px;
+    width: 380px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  }
+  .logo {
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .logo-icon { font-size: 40px; display: block; margin-bottom: 8px }
+  .logo-title { font-size: 16px; font-weight: 800; color: #1e3a5f }
+  .logo-sub { font-size: 12px; color: #64748b; margin-top: 2px }
+  h2 { font-size: 18px; color: #1e293b; margin-bottom: 20px; font-weight: 700 }
+  .field { margin-bottom: 16px }
+  label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px }
+  input[type=email], input[type=password] {
+    width: 100%; padding: 10px 12px;
+    border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 14px; color: #1e293b;
+    transition: border-color .15s;
+    outline: none;
+  }
+  input:focus { border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.1) }
+  .btn-primary {
+    width: 100%; padding: 11px;
+    background: #1e3a5f; color: #fff;
+    border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: background .15s;
+  }
+  .btn-primary:hover { background: #2d5a8e }
+  .btn-primary:disabled { opacity: .6; cursor: default }
+  .btn-secondary {
+    width: 100%; padding: 10px;
+    background: #f1f5f9; color: #475569;
+    border: 1px solid #e2e8f0; border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer; margin-top: 8px;
+    transition: background .15s;
+  }
+  .btn-secondary:hover { background: #e2e8f0 }
+  .divider { text-align: center; color: #94a3b8; font-size: 12px; margin: 16px 0; position: relative }
+  .divider::before, .divider::after {
+    content: ''; position: absolute; top: 50%; width: 42%; height: 1px; background: #e2e8f0;
+  }
+  .divider::before { left: 0 }
+  .divider::after { right: 0 }
+  .msg { font-size: 12px; padding: 10px 12px; border-radius: 7px; margin-top: 14px; display:none }
+  .msg.error { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; display:block }
+  .msg.success { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; display:block }
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px }
+  .tab {
+    flex: 1; text-align: center; padding: 8px;
+    border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600;
+    color: #64748b; background: #f8fafc;
+    transition: all .15s; border: 1px solid transparent;
+  }
+  .tab.active { color: #1e3a5f; background: #dbeafe; border-color: #93c5fd }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <span class="logo-icon">📐</span>
+    <div class="logo-title">Correspondances Programme National du BUT</div>
+    <div class="logo-sub">Espace collaboratif — Équipe pédagogique QLIO</div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" id="tab-login" onclick="switchTab('login')">Connexion</div>
+    <div class="tab" id="tab-signup" onclick="switchTab('signup')">Créer un compte</div>
+  </div>
+
+  <!-- FORMULAIRE CONNEXION -->
+  <div id="form-login">
+    <div class="field">
+      <label>Adresse e-mail</label>
+      <input type="email" id="login-email" placeholder="prenom.nom@univ.fr" autocomplete="email"/>
+    </div>
+    <div class="field">
+      <label>Mot de passe</label>
+      <input type="password" id="login-pwd" placeholder="••••••••" autocomplete="current-password"
+        onkeydown="if(event.key==='Enter') doLogin()"/>
+    </div>
+    <button class="btn-primary" id="btn-login" onclick="doLogin()">Se connecter</button>
+    <button class="btn-secondary" onclick="doMagicLink()">🔗 Connexion par lien e-mail (sans mot de passe)</button>
+    <div id="login-msg" class="msg"></div>
+  </div>
+
+  <!-- FORMULAIRE INSCRIPTION -->
+  <div id="form-signup" style="display:none">
+    <div class="field">
+      <label>Prénom et nom</label>
+      <input type="text" id="signup-name" placeholder="Marie Dupont"/>
+    </div>
+    <div class="field">
+      <label>Adresse e-mail</label>
+      <input type="email" id="signup-email" placeholder="prenom.nom@univ.fr"/>
+    </div>
+    <div class="field">
+      <label>Mot de passe (8 caractères minimum)</label>
+      <input type="password" id="signup-pwd" placeholder="••••••••"
+        onkeydown="if(event.key==='Enter') doSignup()"/>
+    </div>
+    <button class="btn-primary" id="btn-signup" onclick="doSignup()">Créer mon compte</button>
+    <div id="signup-msg" class="msg"></div>
+  </div>
+</div>
+
+<script>
+// ⚙️ CONFIG — copier depuis supabase-sync.js
+const SUPABASE_URL  = 'https://rackahuqnfekncnzrsge.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJhY2thaHVxbmZla25jbnpyc2dlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNzYxNDcsImV4cCI6MjA5Njc1MjE0N30.ZgmuZeDCoA3F7BHOLNcMGI2XCCOgVoSLk-VDAzO0t_o';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+// Pas de redirection automatique — l'utilisateur choisit explicitement
+
+function switchTab(tab) {
+  document.getElementById('form-login').style.display  = tab==='login'  ? '' : 'none';
+  document.getElementById('form-signup').style.display = tab==='signup' ? '' : 'none';
+  document.getElementById('tab-login').classList.toggle('active',  tab==='login');
+  document.getElementById('tab-signup').classList.toggle('active', tab==='signup');
+}
+
+function showMsg(id, type, text) {
+  const el = document.getElementById(id);
+  el.className = 'msg ' + type;
+  el.textContent = text;
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pwd   = document.getElementById('login-pwd').value;
+  if (!email || !pwd) { showMsg('login-msg','error','Email et mot de passe requis'); return; }
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true; btn.textContent = 'Connexion…';
+  const { error } = await db.auth.signInWithPassword({ email, password: pwd });
+  if (error) {
+    showMsg('login-msg','error', error.message === 'Invalid login credentials'
+      ? 'Email ou mot de passe incorrect' : error.message);
+    btn.disabled = false; btn.textContent = 'Se connecter';
+  } else {
+    window.location.href = 'index.html';
+  }
+}
+
+async function doMagicLink() {
+  const email = document.getElementById('login-email').value.trim();
+  if (!email) { showMsg('login-msg','error','Entrez votre email d\'abord'); return; }
+  const { error } = await db.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://qlio-iut-evry.github.io/correspondances-but-collab/index.html' } });
+  if (error) showMsg('login-msg','error', error.message);
+  else showMsg('login-msg','success', `✅ Lien de connexion envoyé à ${email} — vérifiez votre boîte mail`);
+}
+
+async function doSignup() {
+  const name  = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const pwd   = document.getElementById('signup-pwd').value;
+  if (!name || !email || !pwd) { showMsg('signup-msg','error','Tous les champs sont requis'); return; }
+  if (pwd.length < 8) { showMsg('signup-msg','error','Le mot de passe doit faire au moins 8 caractères'); return; }
+  const btn = document.getElementById('btn-signup');
+  btn.disabled = true; btn.textContent = 'Création…';
+  const { error } = await db.auth.signUp({
+    email, password: pwd,
+    options: { data: { display_name: name } }
+  });
+  if (error) {
+    showMsg('signup-msg','error', error.message);
+    btn.disabled = false; btn.textContent = 'Créer mon compte';
+  } else {
+    showMsg('signup-msg','success', '✅ Compte créé ! Vérifiez votre e-mail pour confirmer votre inscription.');
+  }
+}
+</script>
+</body>
+</html>
