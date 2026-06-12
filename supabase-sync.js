@@ -480,8 +480,16 @@ async function initCollaboration() {
 }
 
 function renderProjectSelector() {
-  const container = document.getElementById('project-selector-container');
-  if (!container) return;
+  // Chercher le conteneur existant, sinon le créer dans tab-data
+  let container = document.getElementById('project-selector-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'project-selector-container';
+    container.style.cssText = 'margin-bottom:12px';
+    const tabData = document.getElementById('tab-data');
+    if (tabData) tabData.prepend(container);
+    else return;
+  }
 
   if (window._projects.length === 0) {
     // Aucun projet : proposer d'en créer un
