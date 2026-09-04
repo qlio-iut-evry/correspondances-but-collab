@@ -1955,7 +1955,7 @@ function onDataLoaded(hidePreCompute=false){
   document.getElementById('prog-old-stats').textContent=`${S.old.length} ressources · S${oSems.join(', ')} · ${oPrcs.join(', ')}`;
   const nSems=[...new Set(S.new.map(r=>r.semestre))].sort();
   document.getElementById('prog-new-stats').textContent=`${S.new.length} ressources · S${nSems.join(', ')}`;
-  document.getElementById('hdrSub').innerHTML='<span style="opacity:.75">Ancien&nbsp;:</span> <strong>'+eH(S.oldName)+'</strong><span style="opacity:.5;margin:0 8px">&rarr;</span><span style="opacity:.75">Nouveau&nbsp;:</span> <strong>'+eH(S.newName)+'</strong>';
+  document.getElementById('hdrSub').innerHTML='<div><span style="opacity:.75">Ancien&nbsp;:</span> <strong>'+eH(S.oldName)+'</strong></div><div><span style="opacity:.75">Nouveau&nbsp;:</span> <strong>'+eH(S.newName)+'</strong></div>';
   buildFilters();
   recomputeMatching();
   // Auto-validate code-identical pairs
