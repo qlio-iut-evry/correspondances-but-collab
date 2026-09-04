@@ -99,18 +99,6 @@ async function signOut() {
   window.location.href = 'auth.html';
 }
 
-function renderUserBadge() {
-  const badge = document.getElementById('user-badge');
-  if (!badge || !CURRENT_USER) return;
-  badge.innerHTML = `
-    <span style="font-size:11px;opacity:.85">${CURRENT_USER.display_name}</span>
-    <button onclick="signOut()" title="Se déconnecter"
-      style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);
-             color:#fff;border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer">
-      Déconnexion
-    </button>`;
-}
-
 // ── Gestion des projets ───────────────────────────────────────────────────────
 
 /** Charge la liste des projets disponibles */
@@ -323,109 +311,70 @@ async function syncValidation(newCode, status, comment, validatedOldCode) {
   if (error) console.error('[Sync] syncValidation:', error); else markSaved();
 }
 
-/** Sauvegarde un override de mots-clés */
-async function syncKwOverride(resourceCode, keywords, side) {
+/** Écriture/suppression générique pour les tables d'overrides à clé
+ * (project_id, resource_code, side) : kw_overrides, competence_overrides,
+ * family_overrides, type_overrides. Ces 4 tables ne différaient que par le
+ * nom de table, le nom de colonne, et — avant cette factorisation — une
+ * incohérence réelle (syncFamilyOverride n'avait pas la branche "valeur vide
+ * → suppression" que kw/competence avaient, ce qui aurait fait échouer un
+ * upsert avec family:'' contre la contrainte NOT NULL de la colonne).
+ * value=null/undefined/[] déclenche une suppression ; toute autre valeur
+ * (y compris `false`) est upsertée. */
+async function syncOverrideValue(table, valueField, resourceCode, value, side) {
   if (!CURRENT_PROJECT_ID) return;
   side = side==='old' ? 'old' : 'new';
-  if (!keywords || keywords.length === 0) {
-    const { error } = await db.from('kw_overrides')
+  const isEmpty = value===null || value===undefined || (Array.isArray(value) && value.length===0);
+  if (isEmpty) {
+    const { error } = await db.from(table)
       .delete()
       .eq('project_id', CURRENT_PROJECT_ID)
       .eq('resource_code', resourceCode)
       .eq('side', side);
-    if (error) console.error('[Sync] syncKwOverride (delete):', error); else markSaved();
+    if (error) console.error('[Sync] '+table+' (delete):', error); else markSaved();
     return;
   }
-  const { error } = await db.from('kw_overrides').upsert({
+  const { error } = await db.from(table).upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     side: side,
-    keywords: keywords,
+    [valueField]: value,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code,side' });
-  if (error) console.error('[Sync] syncKwOverride:', error); else markSaved();
+  if (error) console.error('[Sync] '+table+':', error); else markSaved();
+}
+
+/** Sauvegarde un override de mots-clés */
+async function syncKwOverride(resourceCode, keywords, side) {
+  return syncOverrideValue('kw_overrides', 'keywords', resourceCode, keywords, side);
 }
 
 /** Sauvegarde un override de compétences ciblées */
 async function syncCompetenceOverride(resourceCode, competences, side) {
-  if (!CURRENT_PROJECT_ID) return;
-  side = side==='old' ? 'old' : 'new';
-  if (!competences || competences.length === 0) {
-    const { error } = await db.from('competence_overrides')
-      .delete()
-      .eq('project_id', CURRENT_PROJECT_ID)
-      .eq('resource_code', resourceCode)
-      .eq('side', side);
-    if (error) console.error('[Sync] syncCompetenceOverride (delete):', error); else markSaved();
-    return;
-  }
-  const { error } = await db.from('competence_overrides').upsert({
-    project_id: CURRENT_PROJECT_ID,
-    resource_code: resourceCode,
-    side: side,
-    competences: competences,
-    updated_at: new Date().toISOString(),
-    updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code,side' });
-  if (error) console.error('[Sync] syncCompetenceOverride:', error); else markSaved();
+  return syncOverrideValue('competence_overrides', 'competences', resourceCode, competences, side);
 }
 
 /** Sauvegarde un override de famille */
 async function syncFamilyOverride(resourceCode, family, side) {
-  if (!CURRENT_PROJECT_ID) return;
-  side = side==='old' ? 'old' : 'new';
-  const { error } = await db.from('family_overrides').upsert({
-    project_id: CURRENT_PROJECT_ID,
-    resource_code: resourceCode,
-    side: side,
-    family,
-    updated_at: new Date().toISOString(),
-    updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code,side' });
-  if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
+  return syncOverrideValue('family_overrides', 'family', resourceCode, family, side);
 }
 
 /** Supprime un override de famille (retour à l'analyse automatique) */
 async function deleteFamilyOverride(resourceCode, side) {
-  if (!CURRENT_PROJECT_ID) return;
-  side = side==='old' ? 'old' : 'new';
-  const { error } = await db.from('family_overrides')
-    .delete()
-    .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode)
-    .eq('side', side);
-  if (error) console.error('[Sync] deleteFamilyOverride:', error); else markSaved();
+  return syncOverrideValue('family_overrides', 'family', resourceCode, null, side);
 }
 
-/** Sauvegarde un override de type */
+/** Sauvegarde un override de type. S.typeOverrides stocke la string
+ * 'transversal'/'metier' partout dans l'appli, alors que la colonne est
+ * BOOLEAN — conversion faite ici, à la frontière. */
 async function syncTypeOverride(resourceCode, isTransversal, side) {
-  if (!CURRENT_PROJECT_ID) return;
-  side = side==='old' ? 'old' : 'new';
-  // S.typeOverrides stores the string 'transversal'/'metier' everywhere in the
-  // app, but the column is BOOLEAN — convert here so the write doesn't fail
-  // with a silent Postgres cast error.
-  const { error } = await db.from('type_overrides').upsert({
-    project_id: CURRENT_PROJECT_ID,
-    resource_code: resourceCode,
-    side: side,
-    is_transversal: isTransversal === 'transversal',
-    updated_at: new Date().toISOString(),
-    updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code,side' });
-  if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
+  const boolValue = isTransversal==null ? null : (isTransversal === 'transversal');
+  return syncOverrideValue('type_overrides', 'is_transversal', resourceCode, boolValue, side);
 }
 
 /** Supprime un override de type (retour à l'analyse automatique) */
 async function deleteTypeOverride(resourceCode, side) {
-  if (!CURRENT_PROJECT_ID) return;
-  side = side==='old' ? 'old' : 'new';
-  const { error } = await db.from('type_overrides')
-    .delete()
-    .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode)
-    .eq('side', side);
-  if (error) console.error('[Sync] deleteTypeOverride:', error); else markSaved();
+  return syncOverrideValue('type_overrides', 'is_transversal', resourceCode, null, side);
 }
 
 /** Supprime, pour le projet courant, toutes les lignes des tables données.
@@ -435,11 +384,16 @@ async function deleteTypeOverride(resourceCode, side) {
  * prochain chargement du projet. */
 async function clearProjectTables(tables){
   if (!CURRENT_PROJECT_ID) return;
+  let anyError = false;
   for (const t of tables) {
     const { error } = await db.from(t).delete().eq('project_id', CURRENT_PROJECT_ID);
-    if (error) console.error('[Sync] clearProjectTables ('+t+'):', error);
+    if (error) { console.error('[Sync] clearProjectTables ('+t+'):', error); anyError = true; }
   }
-  markSaved();
+  // Ne marquer "enregistré" que si toutes les suppressions ont réussi — sinon
+  // l'utilisateur croit le reset persisté alors que Supabase garde les
+  // anciennes lignes, qui reviendraient au prochain chargement du projet.
+  if (!anyError) markSaved();
+  else if (typeof showToast==='function') showToast('⚠️ Échec de la réinitialisation — réessayez', 'error');
 }
 
 /** Enregistre une entrée dans l'historique */
@@ -482,6 +436,10 @@ function subscribeToRealtime() {
     }, onRemoteChange)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'type_overrides',
+      filter: `project_id=eq.${CURRENT_PROJECT_ID}`
+    }, onRemoteChange)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'competence_overrides',
       filter: `project_id=eq.${CURRENT_PROJECT_ID}`
     }, onRemoteChange)
     .subscribe(status => {
@@ -545,6 +503,27 @@ function parseOvKey(key){
   return i < 0 ? { side: 'new', code: s } : { side: s.slice(0,i), code: s.slice(i+1) };
 }
 
+// Factorise les 4 Proxy identiques sur les maps clées "side:code"
+// (kwOverrides/competenceOverrides/familyOverrides/typeOverrides) : même
+// décomposition de clé, même appel set→syncFn(code,value,side) /
+// delete→deleteFn(code,side). Avant cette factorisation, ces 4 blocs
+// étaient copiés-collés à l'identique dans ce fichier (et une seconde fois
+// dans index.html).
+function makeOverrideKeyProxy(orig, syncFn, deleteFn) {
+  return new Proxy(orig || {}, {
+    set(target, prop, value) {
+      target[prop] = value;
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncFn(code, value, side).catch(console.error); }
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteFn(code, side).catch(console.error); }
+      return true;
+    }
+  });
+}
+
 function installSyncProxies() {
   const _origOverrides = S.overrides || {};
   S.overrides = new Proxy(_origOverrides, {
@@ -582,61 +561,17 @@ function installSyncProxies() {
     }
   });
 
-  const _origKw = S.kwOverrides || {};
-  S.kwOverrides = new Proxy(_origKw, {
-    set(target, prop, value) {
-      target[prop] = value;
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, value, side).catch(console.error); }
-      return true;
-    },
-    deleteProperty(target, prop) {
-      delete target[prop];
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, null, side).catch(console.error); }
-      return true;
-    }
-  });
+  S.kwOverrides = makeOverrideKeyProxy(S.kwOverrides,
+    syncKwOverride, (code,side) => syncKwOverride(code,null,side));
 
-  const _origComp = S.competenceOverrides || {};
-  S.competenceOverrides = new Proxy(_origComp, {
-    set(target, prop, value) {
-      target[prop] = value;
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, value, side).catch(console.error); }
-      return true;
-    },
-    deleteProperty(target, prop) {
-      delete target[prop];
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, null, side).catch(console.error); }
-      return true;
-    }
-  });
+  S.competenceOverrides = makeOverrideKeyProxy(S.competenceOverrides,
+    syncCompetenceOverride, (code,side) => syncCompetenceOverride(code,null,side));
 
-  const _origFam = S.familyOverrides || {};
-  S.familyOverrides = new Proxy(_origFam, {
-    set(target, prop, value) {
-      target[prop] = value;
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncFamilyOverride(code, value, side).catch(console.error); }
-      return true;
-    },
-    deleteProperty(target, prop) {
-      delete target[prop];
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteFamilyOverride(code, side).catch(console.error); }
-      return true;
-    }
-  });
+  S.familyOverrides = makeOverrideKeyProxy(S.familyOverrides,
+    syncFamilyOverride, deleteFamilyOverride);
 
-  const _origType = S.typeOverrides || {};
-  S.typeOverrides = new Proxy(_origType, {
-    set(target, prop, value) {
-      target[prop] = value;
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncTypeOverride(code, value, side).catch(console.error); }
-      return true;
-    },
-    deleteProperty(target, prop) {
-      delete target[prop];
-      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteTypeOverride(code, side).catch(console.error); }
-      return true;
-    }
-  });
+  S.typeOverrides = makeOverrideKeyProxy(S.typeOverrides,
+    syncTypeOverride, deleteTypeOverride);
 }
 
 function patchAppFunctions() {
@@ -800,7 +735,7 @@ async function cloneProject(sourceProjectId){
     }).select().single();
     if (e1) throw e1;
 
-    const tablesToClone = ['overrides','validations','kw_overrides','family_overrides','type_overrides'];
+    const tablesToClone = ['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides'];
     for (const t of tablesToClone) {
       const { data: rows, error: e2 } = await db.from(t).select('*').eq('project_id', sourceProjectId);
       if (e2) throw e2;
