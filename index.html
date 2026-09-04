@@ -5171,9 +5171,9 @@ async function loadProjectState() {
   S.familyOverrides = {};
   (famRes.data || []).forEach(r => { S.familyOverrides[ovKey(r.side,r.resource_code)] = r.family; });
 
-  // Reconstruire S.typeOverrides
+  // Reconstruire S.typeOverrides (colonne BOOLEAN → string 'transversal'/'metier' attendue par l'appli)
   S.typeOverrides = {};
-  (typRes.data || []).forEach(r => { S.typeOverrides[ovKey(r.side,r.resource_code)] = r.is_transversal; });
+  (typRes.data || []).forEach(r => { S.typeOverrides[ovKey(r.side,r.resource_code)] = r.is_transversal ? 'transversal' : 'metier'; });
 
   // Reconstruire S.competenceOverrides
   S.competenceOverrides = {};
@@ -5335,11 +5335,14 @@ async function deleteFamilyOverride(resourceCode, side) {
 async function syncTypeOverride(resourceCode, isTransversal, side) {
   if (!CURRENT_PROJECT_ID) return;
   side = side==='old' ? 'old' : 'new';
+  // S.typeOverrides stores the string 'transversal'/'metier' everywhere in the
+  // app, but the column is BOOLEAN — convert here so the write doesn't fail
+  // with a silent Postgres cast error.
   const { error } = await db.from('type_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     side: side,
-    is_transversal: isTransversal,
+    is_transversal: isTransversal === 'transversal',
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code,side' });
@@ -5626,15 +5629,15 @@ function showProjectModal() {
   const projectList = projects.length === 0
     ? '<p style="color:#64748b;font-size:13px;text-align:center;margin:8px 0 16px">Aucun projet existant — créez-en un ci-dessous.</p>'
     : projects.map(p => `
-        <div onclick="selectProjectFromModal('${p.id}','${p.name.replace(/'/g,"\\'")}',this)"
+        <div onclick="selectProjectFromModal('${p.id}','${eA(p.name)}',this)"
           style="padding:12px 16px;border:2px solid #e2e8f0;border-radius:8px;cursor:pointer;
                  margin-bottom:8px;transition:all .15s;background:#fff;display:flex;
                  justify-content:space-between;align-items:center;gap:8px"
           onmouseover="this.style.borderColor='#1e3a5f';this.style.background='#eff6ff'"
           onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
           <div style="min-width:0">
-            <div style="font-weight:700;color:#1e293b">${p.name}</div>
-            <div style="font-size:11px;color:#64748b;margin-top:2px">${p.old_program_name||'?'} → ${p.new_program_name||'?'} · ${new Date(p.created_at).toLocaleDateString('fr')}</div>
+            <div style="font-weight:700;color:#1e293b">${eH(p.name)}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px">${eH(p.old_program_name||'?')} → ${eH(p.new_program_name||'?')} · ${new Date(p.created_at).toLocaleDateString('fr')}</div>
           </div>
           <div style="display:flex;gap:6px;flex-shrink:0">
             <button onclick="event.stopPropagation();cloneProject('${p.id}')" title="Cloner ce projet"
@@ -5846,8 +5849,8 @@ function renderProjectSelector() {
       onmouseover="this.style.borderColor='#1e3a5f';this.style.background='#eff6ff'"
       onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
       <div style="min-width:0">
-        <div style="font-weight:700;color:#1e293b">${p.name}</div>
-        <div style="font-size:11px;color:#64748b">${p.old_program_name||'?'} → ${p.new_program_name||'?'}</div>
+        <div style="font-weight:700;color:#1e293b">${eH(p.name)}</div>
+        <div style="font-size:11px;color:#64748b">${eH(p.old_program_name||'?')} → ${eH(p.new_program_name||'?')}</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
         <span style="font-size:11px;color:#94a3b8">${new Date(p.created_at).toLocaleDateString('fr')}</span>
