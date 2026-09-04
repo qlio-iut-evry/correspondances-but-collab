@@ -5238,11 +5238,22 @@ function showProjectModal() {
     : projects.map(p => `
         <div onclick="selectProjectFromModal('${p.id}','${p.name.replace(/'/g,"\\'")}',this)"
           style="padding:12px 16px;border:2px solid #e2e8f0;border-radius:8px;cursor:pointer;
-                 margin-bottom:8px;transition:all .15s;background:#fff"
+                 margin-bottom:8px;transition:all .15s;background:#fff;display:flex;
+                 justify-content:space-between;align-items:center;gap:8px"
           onmouseover="this.style.borderColor='#1e3a5f';this.style.background='#eff6ff'"
           onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
-          <div style="font-weight:700;color:#1e293b">${p.name}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px">${p.old_program_name||'?'} → ${p.new_program_name||'?'} · ${new Date(p.created_at).toLocaleDateString('fr')}</div>
+          <div style="min-width:0">
+            <div style="font-weight:700;color:#1e293b">${p.name}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:2px">${p.old_program_name||'?'} → ${p.new_program_name||'?'} · ${new Date(p.created_at).toLocaleDateString('fr')}</div>
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button onclick="event.stopPropagation();cloneProject('${p.id}')" title="Cloner ce projet"
+              style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:6px;
+                     padding:5px 9px;font-size:11px;font-weight:600;cursor:pointer">⎘ Cloner</button>
+            <button onclick="event.stopPropagation();showDeleteProjectModal('${p.id}')" title="Supprimer ce projet"
+              style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;
+                     padding:5px 9px;font-size:11px;font-weight:600;cursor:pointer">🗑</button>
+          </div>
         </div>`).join('');
 
   overlay.innerHTML = `
@@ -5309,6 +5320,107 @@ async function createProjectFromModal() {
   }
 }
 
+/** Clone un projet existant : réglages (pondérations, parcours actifs) + tout
+ * l'état actuel (overrides, validations, familles/types modifiés, mots-clés)
+ * sont copiés dans un nouveau projet indépendant. L'historique n'est PAS
+ * copié — celui du clone démarre vide, celui de l'original reste intact. */
+async function cloneProject(sourceProjectId){
+  const src = (window._projects||[]).find(p=>p.id===sourceProjectId);
+  if (!src) return;
+  const newName = prompt('Nom du projet cloné :', src.name + ' (copie)');
+  if (!newName || !newName.trim()) return;
+  try {
+    const { data: proj, error: e1 } = await db.from('projects').insert({
+      name: newName.trim(),
+      old_program_name: src.old_program_name,
+      new_program_name: src.new_program_name,
+      weights: src.weights,
+      active_parcours: src.active_parcours,
+      created_by: CURRENT_USER.id
+    }).select().single();
+    if (e1) throw e1;
+
+    const tablesToClone = ['overrides','validations','kw_overrides','family_overrides','type_overrides'];
+    for (const t of tablesToClone) {
+      const { data: rows, error: e2 } = await db.from(t).select('*').eq('project_id', sourceProjectId);
+      if (e2) throw e2;
+      if (rows && rows.length) {
+        const copies = rows.map(({id, project_id, updated_at, updated_by, ...rest}) => ({
+          ...rest, project_id: proj.id,
+          updated_at: new Date().toISOString(), updated_by: CURRENT_USER.id
+        }));
+        const { error: e3 } = await db.from(t).insert(copies);
+        if (e3) throw e3;
+      }
+    }
+
+    window._projects = window._projects || [];
+    window._projects.unshift(proj);
+    renderProjectSelector();
+    document.getElementById('project-modal-overlay')?.remove();
+    await selectProject(proj.id);
+    setProjectBadge(newName.trim());
+    showToast('✅ Projet cloné : "' + newName.trim() + '"', 'success');
+  } catch(e) {
+    alert('Erreur lors du clonage : ' + e.message);
+  }
+}
+
+/** Affiche une modale d'avertissement avant suppression définitive d'un projet
+ * (la suppression est en cascade côté base : toutes les correspondances,
+ * validations, overrides et l'historique du projet disparaissent avec lui). */
+function showDeleteProjectModal(projectId){
+  const proj = (window._projects||[]).find(p=>p.id===projectId);
+  if (!proj) return;
+  const existing = document.getElementById('delete-project-modal-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'delete-project-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.7);' +
+    'display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 25px 60px rgba(0,0,0,.3)">
+      <div style="text-align:center;margin-bottom:8px">
+        <div style="font-size:32px;margin-bottom:8px">⚠️</div>
+        <h2 style="font-size:17px;font-weight:800;color:#1e293b;margin:0 0 10px">Supprimer « ${eH(proj.name)} » ?</h2>
+        <p style="font-size:13px;color:#64748b;margin:0;line-height:1.6;text-align:left">
+          Cette action est <strong>définitive</strong>. Toutes les correspondances, validations,
+          modifications de famille ou de type, mots-clés personnalisés et l'historique de ce
+          projet seront <strong style="color:#dc2626">supprimés sans possibilité de récupération</strong>.
+        </p>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:20px">
+        <button onclick="document.getElementById('delete-project-modal-overlay').remove()"
+          style="flex:1;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:8px;
+                 padding:10px;font-size:13px;font-weight:700;cursor:pointer">Annuler</button>
+        <button onclick="confirmDeleteProject('${projectId}')"
+          style="flex:1;background:#dc2626;color:#fff;border:none;border-radius:8px;
+                 padding:10px;font-size:13px;font-weight:700;cursor:pointer">🗑 Supprimer définitivement</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function confirmDeleteProject(projectId){
+  const proj = (window._projects||[]).find(p=>p.id===projectId);
+  document.getElementById('delete-project-modal-overlay')?.remove();
+  try {
+    const { error } = await db.from('projects').delete().eq('id', projectId);
+    if (error) throw error;
+    window._projects = (window._projects||[]).filter(p=>p.id!==projectId);
+    renderProjectSelector();
+    if (CURRENT_PROJECT_ID === projectId) {
+      CURRENT_PROJECT_ID = null;
+      setProjectBadge(null);
+      showProjectModal();
+    }
+    if (typeof showToast==='function') showToast('🗑 Projet "'+(proj?.name||'')+'" supprimé', 'success');
+  } catch(e) {
+    alert('Erreur lors de la suppression : ' + e.message);
+  }
+}
+
 function renderProjectSelector() {
   // Chercher le conteneur existant, sinon le créer dans tab-data
   let container = document.getElementById('project-selector-container');
@@ -5343,11 +5455,19 @@ function renderProjectSelector() {
              transition:all .15s"
       onmouseover="this.style.borderColor='#1e3a5f';this.style.background='#eff6ff'"
       onmouseout="this.style.borderColor='#e2e8f0';this.style.background='#fff'">
-      <div>
+      <div style="min-width:0">
         <div style="font-weight:700;color:#1e293b">${p.name}</div>
         <div style="font-size:11px;color:#64748b">${p.old_program_name||'?'} → ${p.new_program_name||'?'}</div>
       </div>
-      <span style="font-size:11px;color:#94a3b8">${new Date(p.created_at).toLocaleDateString('fr')}</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <span style="font-size:11px;color:#94a3b8">${new Date(p.created_at).toLocaleDateString('fr')}</span>
+        <button onclick="event.stopPropagation();cloneProject('${p.id}')" title="Cloner ce projet"
+          style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:6px;
+                 padding:4px 8px;font-size:11px;font-weight:600;cursor:pointer">⎘</button>
+        <button onclick="event.stopPropagation();showDeleteProjectModal('${p.id}')" title="Supprimer ce projet"
+          style="background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;
+                 padding:4px 8px;font-size:11px;font-weight:600;cursor:pointer">🗑</button>
+      </div>
     </div>`).join('');
 
   container.innerHTML = `
@@ -5399,7 +5519,7 @@ function renderUserBadge(user) {
     <button onclick="reloadCurrentProject()" title="Recharger les données du projet depuis Supabase" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);
       border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer">🔄</button>
     <span id="sync-indicator" style="font-size:11px;color:rgba(255,255,255,.8);white-space:nowrap"></span>
-    <span id="last-save-indicator" style="font-size:11px;color:rgba(255,255,255,.65);white-space:nowrap"></span>
+    <span id="last-save-indicator" style="font-size:11px;color:rgba(255,255,255,.65);white-space:nowrap">💾 Pas encore enregistré cette session</span>
     <div id="user-badge" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);
       padding:4px 10px;border-radius:20px;font-size:12px;color:#fff;cursor:default" title="${user.email}">
       <span>👤</span>
