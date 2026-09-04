@@ -1793,6 +1793,7 @@ function recomputeMatching(){
 
   // Respect manual overrides first (null = sans correspondance explicite)
   for(const [nc, oc] of Object.entries(S.overrides)){
+    if(oc===TO_CREATE_MARK){ usedNew.add(nc); continue; } // R10: "à créer" = jamais de S.matching, comme null
     if(oc){
       // Ignorer si l'ancienne ressource appartient à un parcours inactif
       const oldRes=oldById[oc];
@@ -1913,6 +1914,14 @@ function clearSavedState(){
   if(!confirm('Effacer toutes les données sauvegardées (validations, remplacements, familles) ?')) return;
   localStorage.removeItem(STORAGE_KEY);
   S.validations={}; S.overrides={}; S.extras={}; S.familyOverrides={}; S.typeOverrides={}; S.kwOverrides={}; S.history=[];
+  // R14: la réassignation brute ci-dessus remplace les Proxy de synchro par de
+  // simples objets — les réinstaller, et répercuter l'effacement côté
+  // Supabase (sinon les anciennes lignes reviendraient au prochain chargement
+  // du projet).
+  if(typeof installSyncProxies==='function') installSyncProxies();
+  if(typeof clearProjectTables==='function'){
+    clearProjectTables(['overrides','validations','kw_overrides','family_overrides','type_overrides']).catch(console.error);
+  }
   recomputeMatching(); updateStats(); renderCorr();
 }
 function loadBuiltin(){
@@ -2646,6 +2655,12 @@ function handleCalculerClick(btn){
 function resetValidations(){
   if(!confirm('Réinitialiser toutes les validations ? Les overrides manuels (remplacements) sont conservés.')) return;
   S.validations={};
+  // R14: réinstaller le Proxy de synchro (perdu par la réassignation ci-dessus)
+  // et supprimer les lignes correspondantes côté Supabase.
+  if(typeof installSyncProxies==='function') installSyncProxies();
+  if(typeof clearProjectTables==='function'){
+    clearProjectTables(['validations']).catch(console.error);
+  }
   // Retirer les overrides qui provenaient d'une validation (pas des remplacements manuels)
   // On les garde tous — l'utilisateur peut recalculer s'il veut
   addHist('ALL','reset','Toutes les validations réinitialisées');
@@ -2701,6 +2716,14 @@ function setReplaceFilter(key,val){
   renderReplaceList();
 }
 
+// R10: marqueur spécial stocké dans S.overrides[code] pour signaler qu'une
+// ressource nouvelle n'a volontairement aucun équivalent ancien et doit être
+// créée de toutes pièces. Distinct de null (= "sans correspondance", pas
+// encore tranché) — profite du même mécanisme de sync que les overrides
+// classiques (Proxy → syncOverride), donc persiste sans code supplémentaire.
+const TO_CREATE_MARK='__TO_CREATE__';
+function isToCreate(code){ return S.overrides[code]===TO_CREATE_MARK; }
+
 // Retrouve, pour une ressource ancienne donnée, la ressource nouvelle (autre que
 // excludeNewCode) qui l'utilise déjà comme correspondance principale ou secondaire.
 // On regarde S.matching (affectation effective, auto ou manuelle) et pas seulement
@@ -2744,6 +2767,7 @@ function renderReplaceList(){
 
   let html=`<p style="margin-bottom:6px;font-size:13px">Associer des ressources anciennes à : <strong>${eH(rN.code)}</strong> — ${eH(rN.titre)}</p>
   <p style="font-size:11px;color:#64748b;margin-bottom:10px">Cochez une ou plusieurs ressources. La première cochée devient la correspondance principale.</p>
+  ${isToCreate(newCode)?'<p style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-bottom:10px">🆕 Actuellement marquée « à créer » — cocher une ressource ci-dessous remplacera ce marquage.</p>':''}
   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:8px 10px;background:#f8fafc;border-radius:8px">
     <select onchange="setReplaceFilter('sem',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px">
       <option value=""${ui.sem?'':' selected'}>Tous semestres</option>
@@ -2759,7 +2783,10 @@ function renderReplaceList(){
       <option value="libres"${ui.assigned==='libres'?' selected':''}>Libres seulement</option>
       <option value="affectees"${ui.assigned==='affectees'?' selected':''}>Déjà affectées seulement</option>
     </select>
-    <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" style="margin-left:auto;color:#dc2626;border-color:#fca5a5">🗑 Aucune correspondance — laisser vide</button>
+    <div style="display:flex;gap:8px;margin-left:auto">
+      <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a">🆕 À créer — aucun équivalent</button>
+      <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" style="color:#dc2626;border-color:#fca5a5">🗑 Aucune correspondance — laisser vide</button>
+    </div>
   </div>
   <div style="max-height:380px;overflow-y:auto">`;
 
@@ -2790,6 +2817,59 @@ function clearReplaceTarget(){
   confirmReplace();
 }
 
+// R11: marque la ressource cible comme "à créer" (aucun équivalent ancien
+// pertinent). Réutilise S.overrides via TO_CREATE_MARK, donc se synchronise
+// comme un override classique.
+function markToCreate(){
+  const nc=S.replaceTarget; if(!nc) return;
+  saveSnapshot();
+  if(!S.extras) S.extras={};
+  S.overrides[nc]=TO_CREATE_MARK;
+  delete S.extras[nc];
+  addHist(nc,'modifie','Marquée « à créer » — aucun équivalent dans l\'ancien programme');
+  recomputeMatching(); updateStats(); renderCorr(); closeModal('modal-replace');
+}
+
+// R12: modale à 3 choix (au lieu d'une simple confirmation) quand une
+// ressource ancienne cochée est déjà affectée ailleurs : désaffecter l'autre
+// (comportement par défaut), partager exceptionnellement la même ressource
+// ancienne entre les deux (avec alerte ⚠️ Collision permanente sur les deux
+// lignes), ou annuler.
+function showConflictModal(conflicts, onResolve){
+  const existing=document.getElementById('conflict-modal-overlay');
+  if(existing) existing.remove();
+  const lines=conflicts.map(c=>{
+    const other=S.new.find(r=>r.code===c.otherNewCode);
+    return `<li><strong>${eH(c.oldCode)}</strong> est actuellement affectée à <strong>${eH(c.otherNewCode)}</strong>${other?' — '+eH(other.titre.slice(0,40)):''}</li>`;
+  }).join('');
+  const overlay=document.createElement('div');
+  overlay.id='conflict-modal-overlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(15,23,42,.7);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px)';
+  overlay.innerHTML=`
+    <div style="background:#fff;border-radius:16px;padding:26px;width:460px;max-width:92vw;box-shadow:0 25px 60px rgba(0,0,0,.3)">
+      <div style="text-align:center;margin-bottom:4px">
+        <div style="font-size:30px;margin-bottom:6px">⚠️</div>
+        <h2 style="font-size:16px;font-weight:800;color:#1e293b;margin:0 0 10px">Ressource(s) déjà affectée(s)</h2>
+      </div>
+      <ul style="font-size:13px;color:#475569;text-align:left;margin:0 0 12px;padding-left:18px;line-height:1.6">${lines}</ul>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <button id="conflict-btn-deassign" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
+          Désaffecter l'autre ressource et continuer
+        </button>
+        <button id="conflict-btn-share" style="background:#f59e0b;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
+          ⚠️ Affecter quand même (ressource partagée, exceptionnel)
+        </button>
+        <button id="conflict-btn-cancel" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:8px;padding:10px;font-size:13px;font-weight:700;cursor:pointer">
+          Annuler
+        </button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  document.getElementById('conflict-btn-deassign').onclick=()=>{ overlay.remove(); onResolve('deassign'); };
+  document.getElementById('conflict-btn-share').onclick=()=>{ overlay.remove(); onResolve('share'); };
+  document.getElementById('conflict-btn-cancel').onclick=()=>{ overlay.remove(); onResolve('cancel'); };
+}
+
 function confirmReplace(){
   const nc=S.replaceTarget; if(!nc) return;
   const checked=[...document.querySelectorAll('#modal-replace-body input[type=checkbox]:checked')].map(el=>el.value);
@@ -2801,18 +2881,21 @@ function confirmReplace(){
     .filter(c=>c.otherNewCode);
 
   if(conflicts.length){
-    const lines=conflicts.map(c=>{
-      const other=S.new.find(r=>r.code===c.otherNewCode);
-      return `• ${c.oldCode} est actuellement affectée à ${c.otherNewCode}${other?' — '+other.titre.slice(0,40):''}`;
-    }).join('\n');
-    const ok=confirm(`Cette affectation va désaffecter :\n${lines}\n\nCes ressources deviendront "sans correspondance". Continuer ?`);
-    if(!ok) return;
+    showConflictModal(conflicts, (choice)=>{
+      if(choice==='cancel') return;
+      applyReplace(nc, checked, conflicts, choice); // choice: 'deassign' | 'share'
+    });
+    return;
   }
+  applyReplace(nc, checked, [], null);
+}
 
+function applyReplace(nc, checked, conflicts, mode){
   saveSnapshot();
   if(!S.extras) S.extras={};
+  const shared = mode==='share';
 
-  conflicts.forEach(c=>{
+  (mode==='deassign'?conflicts:[]).forEach(c=>{
     const other=c.otherNewCode;
     // La ressource "other" perdait c.oldCode qu'elle tenait automatiquement ou
     // manuellement — dans les deux cas elle devient explicitement sans
@@ -2823,6 +2906,18 @@ function confirmReplace(){
     addHist(other,'modifie',`Désaffectée de ${c.oldCode} (réaffectée à ${nc})`);
   });
 
+  if(shared){
+    // R12: figer explicitement l'autre ressource sur cette même ancienne
+    // ressource. Si son affectation était automatique (pas dans S.overrides),
+    // le recalcul du greedy la lui aurait sinon "volée" pour la réattribuer
+    // ailleurs dès que cette ancienne ressource devient "prise" — rendant le
+    // partage invisible au lieu de déclencher le badge ⚠️ Collision.
+    conflicts.forEach(c=>{
+      S.overrides[c.otherNewCode]=c.oldCode;
+      addHist(c.otherNewCode,'modifie',`Partage exceptionnel de ${c.oldCode} avec ${nc}`);
+    });
+  }
+
   if(!checked.length){
     S.overrides[nc]=null;  // null = explicitement sans correspondance
     delete S.extras[nc];
@@ -2830,7 +2925,7 @@ function confirmReplace(){
   } else {
     S.overrides[nc]=checked[0];
     S.extras[nc]=checked.slice(1);
-    addHist(nc,'modifie','Associé à : '+checked.join(', '));
+    addHist(nc,'modifie','Associé à : '+checked.join(', ')+(shared?' (ressource partagée avec une autre — conflit conservé volontairement)':''));
   }
   recomputeMatching(); updateStats(); renderCorr(); closeModal('modal-replace');
 }
@@ -4152,7 +4247,11 @@ function renderCorrEnhanced(){
 
   const groups={};
   rows.forEach(r=>{(groups[r.rN.semestre] ||= []).push(r);});
-  const scores=rows.map(r=>r.score);
+  // R13: les lignes sans correspondance (score 0 par construction) ne doivent
+  // pas fausser le score moyen ni les catégories forte/moyenne/faible — seules
+  // les ressources réellement appariées ont un score qui a du sens à moyenner.
+  const matchedRows=rows.filter(r=>!r.noMatch);
+  const scores=matchedRows.map(r=>r.score);
   const avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
   const easy=rows.filter(r=>r.transition.bucket==='easy').length;
   const mid=rows.filter(r=>r.transition.bucket==='mid').length;
@@ -4177,9 +4276,9 @@ function renderCorrEnhanced(){
     </div>
     <div style="font-size:12px;color:#64748b">
       <strong>${validated}</strong> validées ·
-      <span style="color:#16a34a;font-weight:700">${rows.filter(x=>x.score>=55).length} fortes</span> ·
-      <span style="color:#d97706;font-weight:700">${rows.filter(x=>x.score>=35&&x.score<55).length} moyennes</span> ·
-      <span style="color:#ea580c;font-weight:700">${rows.filter(x=>x.score<35).length} faibles / à vérifier</span>
+      <span style="color:#16a34a;font-weight:700">${matchedRows.filter(x=>x.score>=55).length} fortes</span> ·
+      <span style="color:#d97706;font-weight:700">${matchedRows.filter(x=>x.score>=35&&x.score<55).length} moyennes</span> ·
+      <span style="color:#ea580c;font-weight:700">${matchedRows.filter(x=>x.score<35).length} faibles / à vérifier</span>
     </div>
     <div class="semester-strip">
       <button class="semester-chip" onclick="setCorrSemester('')">Tous les semestres</button>${semChips}
@@ -4194,11 +4293,16 @@ function renderCorrEnhanced(){
     if(noMatch){
       const selected=S.selectedCorr===rN.code?' sel':'';
       const codeBadge=isTransv?'<span style="font-size:10px;color:#0891b2">Transversale</span> ':'<span style="font-size:10px;color:#7c3aed">Métier</span> ';
-      return `<tr class="corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer;background:#fff7ed;border-left:3px solid #f97316" onclick="openReplace('${eA(rN.code)}')">
+      const toCreate=isToCreate(rN.code);
+      const msgColor=toCreate?'#b45309':'#ea580c';
+      const msgBg=toCreate?'#fffbeb':'#fff7ed';
+      const msgBorder=toCreate?'#f59e0b':'#f97316';
+      const msgText=toCreate?'🆕 Ressource à créer — aucun équivalent dans l\'ancien programme':'⚠️ Aucune ressource ancienne affectée — cliquez pour associer';
+      return `<tr class="corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer;background:${msgBg};border-left:3px solid ${msgBorder}" onclick="openReplace('${eA(rN.code)}')">
         <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
         <td style="text-align:center;font-weight:700">${rN.semestre}</td>
         <td><span class="fam">${eH(resourceFamily(rN))}</span></td>
-        <td colspan="6" style="color:#ea580c;font-weight:700;font-size:12px">⚠️ Aucune ressource ancienne affectée — cliquez pour associer</td>
+        <td colspan="6" style="color:${msgColor};font-weight:700;font-size:12px">${msgText}</td>
         <td onclick="event.stopPropagation()"><div class="val-btn-wrap">
           <button class="btn-icon" title="Associer une ressource" onclick="openReplace('${eA(rN.code)}')">✏️</button>
         </div></td>
@@ -5019,6 +5123,16 @@ async function syncFamilyOverride(resourceCode, family) {
   if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
 }
 
+/** Supprime un override de famille (retour à l'analyse automatique) */
+async function deleteFamilyOverride(resourceCode) {
+  if (!CURRENT_PROJECT_ID) return;
+  const { error } = await db.from('family_overrides')
+    .delete()
+    .eq('project_id', CURRENT_PROJECT_ID)
+    .eq('resource_code', resourceCode);
+  if (error) console.error('[Sync] deleteFamilyOverride:', error); else markSaved();
+}
+
 /** Sauvegarde un override de type */
 async function syncTypeOverride(resourceCode, isTransversal) {
   if (!CURRENT_PROJECT_ID) return;
@@ -5030,6 +5144,30 @@ async function syncTypeOverride(resourceCode, isTransversal) {
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code' });
   if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
+}
+
+/** Supprime un override de type (retour à l'analyse automatique) */
+async function deleteTypeOverride(resourceCode) {
+  if (!CURRENT_PROJECT_ID) return;
+  const { error } = await db.from('type_overrides')
+    .delete()
+    .eq('project_id', CURRENT_PROJECT_ID)
+    .eq('resource_code', resourceCode);
+  if (error) console.error('[Sync] deleteTypeOverride:', error); else markSaved();
+}
+
+/** Supprime, pour le projet courant, toutes les lignes des tables données.
+ * Utilisé par les boutons de réinitialisation groupée (Réinitialiser les
+ * validations, Réinitialisation complète) pour que le reset local se
+ * répercute bien côté base — sinon les anciennes lignes reviennent au
+ * prochain chargement du projet. */
+async function clearProjectTables(tables){
+  if (!CURRENT_PROJECT_ID) return;
+  for (const t of tables) {
+    const { error } = await db.from(t).delete().eq('project_id', CURRENT_PROJECT_ID);
+    if (error) console.error('[Sync] clearProjectTables ('+t+'):', error);
+  }
+  markSaved();
 }
 
 /** Enregistre une entrée dans l'historique */
@@ -5153,6 +5291,11 @@ function installSyncProxies() {
           .catch(console.error);
       }
       return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) syncValidation(prop, null).catch(console.error);
+      return true;
     }
   });
 
@@ -5161,6 +5304,11 @@ function installSyncProxies() {
     set(target, prop, value) {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncKwOverride(prop, value).catch(console.error);
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) syncKwOverride(prop, null).catch(console.error);
       return true;
     }
   });
@@ -5171,6 +5319,11 @@ function installSyncProxies() {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncFamilyOverride(prop, value).catch(console.error);
       return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) deleteFamilyOverride(prop).catch(console.error);
+      return true;
     }
   });
 
@@ -5179,6 +5332,11 @@ function installSyncProxies() {
     set(target, prop, value) {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncTypeOverride(prop, value).catch(console.error);
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) deleteTypeOverride(prop).catch(console.error);
       return true;
     }
   });

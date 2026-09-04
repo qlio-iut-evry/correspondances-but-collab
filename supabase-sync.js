@@ -344,6 +344,16 @@ async function syncFamilyOverride(resourceCode, family) {
   if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
 }
 
+/** Supprime un override de famille (retour à l'analyse automatique) */
+async function deleteFamilyOverride(resourceCode) {
+  if (!CURRENT_PROJECT_ID) return;
+  const { error } = await db.from('family_overrides')
+    .delete()
+    .eq('project_id', CURRENT_PROJECT_ID)
+    .eq('resource_code', resourceCode);
+  if (error) console.error('[Sync] deleteFamilyOverride:', error); else markSaved();
+}
+
 /** Sauvegarde un override de type */
 async function syncTypeOverride(resourceCode, isTransversal) {
   if (!CURRENT_PROJECT_ID) return;
@@ -355,6 +365,30 @@ async function syncTypeOverride(resourceCode, isTransversal) {
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code' });
   if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
+}
+
+/** Supprime un override de type (retour à l'analyse automatique) */
+async function deleteTypeOverride(resourceCode) {
+  if (!CURRENT_PROJECT_ID) return;
+  const { error } = await db.from('type_overrides')
+    .delete()
+    .eq('project_id', CURRENT_PROJECT_ID)
+    .eq('resource_code', resourceCode);
+  if (error) console.error('[Sync] deleteTypeOverride:', error); else markSaved();
+}
+
+/** Supprime, pour le projet courant, toutes les lignes des tables données.
+ * Utilisé par les boutons de réinitialisation groupée (Réinitialiser les
+ * validations, Réinitialisation complète) pour que le reset local se
+ * répercute bien côté base — sinon les anciennes lignes reviennent au
+ * prochain chargement du projet. */
+async function clearProjectTables(tables){
+  if (!CURRENT_PROJECT_ID) return;
+  for (const t of tables) {
+    const { error } = await db.from(t).delete().eq('project_id', CURRENT_PROJECT_ID);
+    if (error) console.error('[Sync] clearProjectTables ('+t+'):', error);
+  }
+  markSaved();
 }
 
 /** Enregistre une entrée dans l'historique */
@@ -478,6 +512,11 @@ function installSyncProxies() {
           .catch(console.error);
       }
       return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) syncValidation(prop, null).catch(console.error);
+      return true;
     }
   });
 
@@ -486,6 +525,11 @@ function installSyncProxies() {
     set(target, prop, value) {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncKwOverride(prop, value).catch(console.error);
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) syncKwOverride(prop, null).catch(console.error);
       return true;
     }
   });
@@ -496,6 +540,11 @@ function installSyncProxies() {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncFamilyOverride(prop, value).catch(console.error);
       return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) deleteFamilyOverride(prop).catch(console.error);
+      return true;
     }
   });
 
@@ -504,6 +553,11 @@ function installSyncProxies() {
     set(target, prop, value) {
       target[prop] = value;
       if (CURRENT_PROJECT_ID) syncTypeOverride(prop, value).catch(console.error);
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) deleteTypeOverride(prop).catch(console.error);
       return true;
     }
   });
