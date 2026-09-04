@@ -203,12 +203,13 @@ function renderProjectBadge() {
 async function loadProjectState() {
   if (!CURRENT_PROJECT_ID) return;
 
-  const [ovRes, valRes, kwRes, famRes, typRes, histRes] = await Promise.all([
+  const [ovRes, valRes, kwRes, famRes, typRes, compRes, histRes] = await Promise.all([
     db.from('overrides')       .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('validations')     .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('kw_overrides')    .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('family_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('type_overrides')  .select('*').eq('project_id', CURRENT_PROJECT_ID),
+    db.from('competence_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('history')         .select('*, profiles(display_name,email)')
                                .eq('project_id', CURRENT_PROJECT_ID)
                                .order('created_at', { ascending: false })
@@ -229,17 +230,21 @@ async function loadProjectState() {
     };
   });
 
-  // Reconstruire S.kwOverrides
+  // Reconstruire S.kwOverrides (clé composée side:code — cf. ovKey)
   S.kwOverrides = {};
-  (kwRes.data || []).forEach(r => { S.kwOverrides[r.resource_code] = r.keywords; });
+  (kwRes.data || []).forEach(r => { S.kwOverrides[ovKey(r.side,r.resource_code)] = r.keywords; });
 
   // Reconstruire S.familyOverrides
   S.familyOverrides = {};
-  (famRes.data || []).forEach(r => { S.familyOverrides[r.resource_code] = r.family; });
+  (famRes.data || []).forEach(r => { S.familyOverrides[ovKey(r.side,r.resource_code)] = r.family; });
 
   // Reconstruire S.typeOverrides
   S.typeOverrides = {};
-  (typRes.data || []).forEach(r => { S.typeOverrides[r.resource_code] = r.is_transversal; });
+  (typRes.data || []).forEach(r => { S.typeOverrides[ovKey(r.side,r.resource_code)] = r.is_transversal; });
+
+  // Reconstruire S.competenceOverrides
+  S.competenceOverrides = {};
+  (compRes.data || []).forEach(r => { S.competenceOverrides[ovKey(r.side,r.resource_code)] = r.competences; });
 
   // Reconstruire S.hist
   S.hist = (histRes.data || []).map(r => ({
@@ -247,6 +252,14 @@ async function loadProjectState() {
     msg: r.description, ts: r.created_at,
     user: r.profiles?.display_name || r.profiles?.email || '?'
   }));
+
+  // R18: pousser les mots-clés/compétences du projet chargé sur les objets
+  // ressources eux-mêmes (r.mots_cles / r.competences) — sinon S.kwOverrides /
+  // S.competenceOverrides seraient à jour mais l'affichage resterait sur les
+  // valeurs extraites du PDF ou d'un projet précédent tant qu'un autre appel
+  // n'aurait pas déclenché ce recalcul.
+  if (typeof applyKwOverrides === 'function') applyKwOverrides();
+  if (typeof applyCompetenceOverrides === 'function') applyCompetenceOverrides();
 
   // Les lignes ci-dessus réassignent S.overrides/S.validations/... à des objets
   // bruts : réinstaller les Proxy de synchro avant que l'utilisateur ne modifie
@@ -311,69 +324,104 @@ async function syncValidation(newCode, status, comment, validatedOldCode) {
 }
 
 /** Sauvegarde un override de mots-clés */
-async function syncKwOverride(resourceCode, keywords) {
+async function syncKwOverride(resourceCode, keywords, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   if (!keywords || keywords.length === 0) {
     const { error } = await db.from('kw_overrides')
       .delete()
       .eq('project_id', CURRENT_PROJECT_ID)
-      .eq('resource_code', resourceCode);
+      .eq('resource_code', resourceCode)
+      .eq('side', side);
     if (error) console.error('[Sync] syncKwOverride (delete):', error); else markSaved();
     return;
   }
   const { error } = await db.from('kw_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     keywords: keywords,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncKwOverride:', error); else markSaved();
 }
 
-/** Sauvegarde un override de famille */
-async function syncFamilyOverride(resourceCode, family) {
+/** Sauvegarde un override de compétences ciblées */
+async function syncCompetenceOverride(resourceCode, competences, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
+  if (!competences || competences.length === 0) {
+    const { error } = await db.from('competence_overrides')
+      .delete()
+      .eq('project_id', CURRENT_PROJECT_ID)
+      .eq('resource_code', resourceCode)
+      .eq('side', side);
+    if (error) console.error('[Sync] syncCompetenceOverride (delete):', error); else markSaved();
+    return;
+  }
+  const { error } = await db.from('competence_overrides').upsert({
+    project_id: CURRENT_PROJECT_ID,
+    resource_code: resourceCode,
+    side: side,
+    competences: competences,
+    updated_at: new Date().toISOString(),
+    updated_by: CURRENT_USER.id
+  }, { onConflict: 'project_id,resource_code,side' });
+  if (error) console.error('[Sync] syncCompetenceOverride:', error); else markSaved();
+}
+
+/** Sauvegarde un override de famille */
+async function syncFamilyOverride(resourceCode, family, side) {
+  if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('family_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     family,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
 }
 
 /** Supprime un override de famille (retour à l'analyse automatique) */
-async function deleteFamilyOverride(resourceCode) {
+async function deleteFamilyOverride(resourceCode, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('family_overrides')
     .delete()
     .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode);
+    .eq('resource_code', resourceCode)
+    .eq('side', side);
   if (error) console.error('[Sync] deleteFamilyOverride:', error); else markSaved();
 }
 
 /** Sauvegarde un override de type */
-async function syncTypeOverride(resourceCode, isTransversal) {
+async function syncTypeOverride(resourceCode, isTransversal, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('type_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     is_transversal: isTransversal,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
 }
 
 /** Supprime un override de type (retour à l'analyse automatique) */
-async function deleteTypeOverride(resourceCode) {
+async function deleteTypeOverride(resourceCode, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('type_overrides')
     .delete()
     .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode);
+    .eq('resource_code', resourceCode)
+    .eq('side', side);
   if (error) console.error('[Sync] deleteTypeOverride:', error); else markSaved();
 }
 
@@ -483,6 +531,17 @@ function showSyncToast(msg) {
 // (ex. dans loadProjectState) : une réassignation directe remplace le Proxy
 // existant, ce qui arrêtait silencieusement la synchro vers Supabase après
 // la sélection d'un projet.
+// R20: S.kwOverrides/familyOverrides/typeOverrides/competenceOverrides sont
+// désormais clés par "side:code" (cf. ovKey côté app) pour ne pas confondre
+// une ressource ancienne et une ressource nouvelle qui partagent le même
+// code. On décompose la clé ici pour l'envoyer à Supabase sous forme de deux
+// colonnes (resource_code, side).
+function parseOvKey(key){
+  const s = String(key);
+  const i = s.indexOf(':');
+  return i < 0 ? { side: 'new', code: s } : { side: s.slice(0,i), code: s.slice(i+1) };
+}
+
 function installSyncProxies() {
   const _origOverrides = S.overrides || {};
   S.overrides = new Proxy(_origOverrides, {
@@ -524,12 +583,26 @@ function installSyncProxies() {
   S.kwOverrides = new Proxy(_origKw, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncKwOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) syncKwOverride(prop, null).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, null, side).catch(console.error); }
+      return true;
+    }
+  });
+
+  const _origComp = S.competenceOverrides || {};
+  S.competenceOverrides = new Proxy(_origComp, {
+    set(target, prop, value) {
+      target[prop] = value;
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, value, side).catch(console.error); }
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, null, side).catch(console.error); }
       return true;
     }
   });
@@ -538,12 +611,12 @@ function installSyncProxies() {
   S.familyOverrides = new Proxy(_origFam, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncFamilyOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncFamilyOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) deleteFamilyOverride(prop).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteFamilyOverride(code, side).catch(console.error); }
       return true;
     }
   });
@@ -552,12 +625,12 @@ function installSyncProxies() {
   S.typeOverrides = new Proxy(_origType, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncTypeOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncTypeOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) deleteTypeOverride(prop).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteTypeOverride(code, side).catch(console.error); }
       return true;
     }
   });

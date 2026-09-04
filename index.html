@@ -976,6 +976,20 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
 <!-- RESOURCE HOVER TOOLTIP -->
 <div id="res-tooltip" style="display:none;position:fixed;z-index:9999;max-width:340px;background:#fff;border:1px solid #cbd5e1;border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:14px 16px;pointer-events:none;font-size:12px;line-height:1.5"></div>
 
+<!-- RESOURCE DETAIL (édition rapide depuis le tableau) -->
+<div class="modal-backdrop" id="modal-resource-detail">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-hdr">
+      <h2 id="modal-resource-detail-title" style="font-size:14px">Détail de la ressource</h2>
+      <button class="x-btn" onclick="closeModal('modal-resource-detail')">✕</button>
+    </div>
+    <div class="modal-body" id="modal-resource-detail-body" style="max-height:70vh;overflow-y:auto"></div>
+    <div class="modal-ftr">
+      <button class="btn btn-outline" onclick="closeModal('modal-resource-detail')">Fermer</button>
+    </div>
+  </div>
+</div>
+
 <!-- REPLACE -->
 <div class="modal-backdrop" id="modal-replace">
   <div class="modal" style="max-width:640px">
@@ -1539,6 +1553,7 @@ const S = {
   typeOverrides: {}, // manual type overrides: newCode -> transversal | metier
   familyOverrides: {}, // manual family overrides: resourceCode -> family
   kwOverrides: {}, // manual keyword overrides: resourceCode -> string[]
+  competenceOverrides: {}, // manual competence overrides: resourceCode -> string[]
   loaded: false,
   replaceTarget: null, replaceSelected: null,
   exOld: '', exNew: '',
@@ -1577,12 +1592,18 @@ function pathLabel(code,name){
   return `${displayParcours(code)} – ${name}`;
 }
 
+// R20: les overrides de famille/type/mots-clés/compétences sont stockés sous
+// une clé composée "side:code" (ex. "new:R1.01") plutôt que le code seul —
+// l'ancien et le nouveau programme peuvent partager le même code (19/76 cas
+// sur le jeu de données par défaut), et une clé "code" seule ferait que
+// modifier l'un écraserait silencieusement l'override de l'autre.
+function ovKey(side, code){ return (side==='old'?'old':'new')+':'+code; }
 function resourceFamily(r){
   // 6 familles exactes alignées sur le prompt BUT
   // Transversales : Langue & Communication | Développement personnel | Gestion & Entreprise | Numérique & Mathématiques
   // Métier        : Production & Flux | Qualité & Amélioration
   if(!r) return '';
-  const f = S.familyOverrides[r.code] || r.family || '';
+  const f = S.familyOverrides[ovKey(r.side,r.code)] || r.family || '';
   const isT = isTransversalRes(r);
   const titre = (r.titre||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
 
@@ -1616,7 +1637,7 @@ function resourceFamily(r){
   }
 }
 function familySource(r){
-  return r && S.familyOverrides[r.code] ? 'corrigée manuellement' : 'analyse automatique';
+  return r && S.familyOverrides[ovKey(r.side,r.code)] ? 'corrigée manuellement' : 'analyse automatique';
 }
 
 // ===== PARCOURS FILTER =====
@@ -1913,14 +1934,14 @@ function restoreState(){
 function clearSavedState(){
   if(!confirm('Effacer toutes les données sauvegardées (validations, remplacements, familles) ?')) return;
   localStorage.removeItem(STORAGE_KEY);
-  S.validations={}; S.overrides={}; S.extras={}; S.familyOverrides={}; S.typeOverrides={}; S.kwOverrides={}; S.history=[];
+  S.validations={}; S.overrides={}; S.extras={}; S.familyOverrides={}; S.typeOverrides={}; S.kwOverrides={}; S.competenceOverrides={}; S.history=[];
   // R14: la réassignation brute ci-dessus remplace les Proxy de synchro par de
   // simples objets — les réinstaller, et répercuter l'effacement côté
   // Supabase (sinon les anciennes lignes reviendraient au prochain chargement
   // du projet).
   if(typeof installSyncProxies==='function') installSyncProxies();
   if(typeof clearProjectTables==='function'){
-    clearProjectTables(['overrides','validations','kw_overrides','family_overrides','type_overrides']).catch(console.error);
+    clearProjectTables(['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides']).catch(console.error);
   }
   recomputeMatching(); updateStats(); renderCorr();
 }
@@ -1931,6 +1952,7 @@ function loadBuiltin(){
   sanitizeTransversalFlags();
   restoreState();
   applyKwOverrides();
+  applyCompetenceOverrides();
   S.loaded = true;
   onDataLoaded(true);
 }
@@ -2016,7 +2038,7 @@ function updateStats(){
 // ===== TAB CORRESPONDANCES =====
 function isDisplayedTransversal(row, rO, rN){
   const overrideKey = rN?.code || row?.newCode;
-  const override = overrideKey ? S.typeOverrides[overrideKey] : null;
+  const override = overrideKey ? S.typeOverrides[ovKey('new',overrideKey)] : null;
   if(override==='transversal') return true;
   if(override==='metier') return false;
   if(row && row.isTransversal !== undefined) return !!row.isTransversal;
@@ -2026,7 +2048,7 @@ function isDisplayedTransversal(row, rO, rN){
 }
 
 function resourceTypeInfo(newCode, row, rO, rN){
-  const override = newCode ? S.typeOverrides[newCode] : null;
+  const override = newCode ? S.typeOverrides[ovKey('new',newCode)] : null;
   const isTransv = isDisplayedTransversal(row, rO, rN);
   return {
     override,
@@ -2377,7 +2399,7 @@ function openResourceDetail(side, code){
     ${scoreBadge(matching.score||0)}
   </div>`:'';
   const kwInputId=`kw-edit-${eA(r.code)}`;
-  const hasOverride=!!(S.kwOverrides||{})[r.code];
+  const hasOverride=!!(S.kwOverrides||{})[ovKey(side,r.code)];
   const kwEditorHtml=`
     <div class="detail-section">
       <div class="detail-title" style="display:flex;align-items:center;gap:8px">
@@ -2390,7 +2412,7 @@ function openResourceDetail(side, code){
       <textarea id="${kwInputId}" style="width:100%;min-height:70px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px;resize:vertical;box-sizing:border-box" placeholder="Saisir les mots-clés séparés par des virgules…">${eH((r.mots_cles||[]).join(', '))}</textarea>
       <div style="display:flex;gap:6px;margin-top:6px">
         <button class="btn btn-primary btn-sm" style="font-size:11px" onclick="saveKwOverride('${eA(r.code)}','${side}','${kwInputId}')">Enregistrer</button>
-        ${hasOverride?`<button class="btn btn-outline btn-sm" style="font-size:11px" onclick="delete S.kwOverrides['${eA(r.code)}'];const _r=(${side==='new'?'S.new':'S.old'}).find(x=>x.code==='${eA(r.code)}');if(_r){_r.mots_cles=[];saveKwOverride('${eA(r.code)}','${side}','${kwInputId}')}">Réinitialiser</button>`:''}
+        ${hasOverride?`<button class="btn btn-outline btn-sm" style="font-size:11px" onclick="delete S.kwOverrides['${eA(ovKey(side,r.code))}'];const _r=(${side==='new'?'S.new':'S.old'}).find(x=>x.code==='${eA(r.code)}');if(_r){_r.mots_cles=[];saveKwOverride('${eA(r.code)}','${side}','${kwInputId}')}">Réinitialiser</button>`:''}
       </div>
     </div>`;
   document.getElementById('modal-resource-body').innerHTML=`
@@ -2674,26 +2696,28 @@ function doValidate(code, status){
   updateStats(); renderCorr();
 }
 
-function setResourceType(code, type){
+function setResourceType(code, type, side){
   if(!code) return;
+  const key=ovKey(side,code);
   if(type==='auto'){
-    delete S.typeOverrides[code];
+    delete S.typeOverrides[key];
     addHist(code,'type-auto','Retour analyse automatique');
   } else if(type==='transversal' || type==='metier'){
-    S.typeOverrides[code]=type;
+    S.typeOverrides[key]=type;
     addHist(code,`type-${type}`,type==='transversal'?'Défini comme transversale':'Défini comme métier');
   }
   renderCorr();
 }
 
-function setResourceFamily(code, family){
+function setResourceFamily(code, family, side){
   if(!code) return;
+  const key=ovKey(side,code);
   const currentFam=document.getElementById('f-fam')?.value||'';
   if(!family){
-    delete S.familyOverrides[code];
+    delete S.familyOverrides[key];
     addHist(code,'famille-auto','Retour famille automatique');
   } else {
-    S.familyOverrides[code]=family;
+    S.familyOverrides[key]=family;
     addHist(code,'famille',`Famille définie : ${family}`);
   }
   buildFilters();
@@ -3285,10 +3309,10 @@ function renderPreTable(side){
   h+='<thead><tr style="background:#f1f5f9;position:sticky;top:0"><th style="padding:5px 8px;text-align:left;font-weight:700;color:#475569">Code</th><th style="padding:5px 8px;text-align:left;font-weight:700;color:#475569">Titre</th><th style="padding:5px 8px;text-align:left;font-weight:700;color:#475569">Famille</th><th style="padding:5px 8px;text-align:center;font-weight:700;color:#475569">Type</th></tr></thead><tbody>';
   resources.forEach(r=>{
     const isT=isTransversalRes(r);
-    const typeOvr=S.typeOverrides[r.code];
+    const typeOvr=S.typeOverrides[ovKey(side,r.code)];
     const effectiveT=typeOvr?typeOvr==='transversal':isT;
     const computedFam=resourceFamily(r);
-    const hasOvr=!!S.familyOverrides[r.code];
+    const hasOvr=!!S.familyOverrides[ovKey(side,r.code)];
     const famSelectHtml=PRE_FAMILIES.map(f=>`<option value="${eA(f)}"${computedFam===f?' selected':''}>${eH(f)}</option>`).join('');
     h+=`<tr style="border-bottom:1px solid #e2e8f0${hasOvr?';background:#f0f9ff':''}">
       <td style="padding:4px 8px;white-space:nowrap"><span class="code" style="font-size:10px">${eH(r.code)}</span></td>
@@ -3309,11 +3333,12 @@ function renderPreTable(side){
   el.innerHTML=h;
 }
 function setPreFamily(code,side,family){
-  if(family) S.familyOverrides[code]=family; else delete S.familyOverrides[code];
+  const key=ovKey(side,code);
+  if(family) S.familyOverrides[key]=family; else delete S.familyOverrides[key];
   if(S.loaded){ recomputeMatching(); updateStats(); renderCorr(); saveState(); }
 }
 function setPreType(code,side,type){
-  S.typeOverrides[code]=type;
+  S.typeOverrides[ovKey(side,code)]=type;
   if(S.loaded){ recomputeMatching(); updateStats(); renderCorr(); saveState(); }
   renderPreTable(side);
 }
@@ -3324,6 +3349,7 @@ function launchCompute(){
     S.rows=computeClientScores(S.old,S.new);
     sanitizeOfficialKeywordData();
     applyKwOverrides();
+    applyCompetenceOverrides();
     S.loaded=true;
     onDataLoaded(false);
     setFileSt('old','ok',`✅ ${S.old.length} ressources extraites`);
@@ -3488,6 +3514,22 @@ function openModal(id){
   document.getElementById(id)?.classList.add('open');
 }
 function closeModal(id){document.getElementById(id)?.classList.remove('open');}
+
+// R19: fermer n'importe quelle modale en cliquant sur le fond (en dehors de
+// son contenu) ou avec Échap — pour toutes les modales sans exception, pas
+// seulement certaines. Permet de sortir d'une modale ouverte (ex. édition
+// d'une ressource) pour aller changer de projet sans devoir chercher un
+// bouton Annuler/Fermer précis, et sans déclencher d'action.
+document.addEventListener('click', function(e){
+  if(e.target.classList && e.target.classList.contains('modal-backdrop') && e.target.classList.contains('open')){
+    e.target.classList.remove('open');
+  }
+});
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'){
+    document.querySelectorAll('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+  }
+});
 
 function updateExtractionBadges(){
   const all=[...(S.old||[]),...(S.new||[])];
@@ -3839,40 +3881,40 @@ function renderCorrDetail(newCode){
   // 6 familles fixes
   const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration'];
 
-  function famButtons(code, currentFam, hasFamOverride){
+  function famButtons(code, currentFam, hasFamOverride, side){
     const btns=FAMS.map(function(f){
       const active=f===currentFam;
       const st='padding:4px 6px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;width:100%;'
         +'border:1.5px solid '+(active?'#1e3a5f':'#cbd5e1')+';'
         +'background:'+(active?'#1e3a5f':'#fff')+';'
         +'color:'+(active?'#fff':'#475569')+';';
-      return '<button onclick="setResourceFamily(\''+eA(code)+'\',\''+eA(f)+'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="'+st+'" title="'+eH(f)+'">'+eH(f)+'</button>';
+      return '<button onclick="setResourceFamily(\''+eA(code)+'\',\''+eA(f)+'\',\''+side+'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="'+st+'" title="'+eH(f)+'">'+eH(f)+'</button>';
     }).join('');
     const reset=hasFamOverride
-      ? '<button onclick="setResourceFamily(\''+eA(code)+'\',\'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
+      ? '<button onclick="setResourceFamily(\''+eA(code)+'\',\'\',\''+side+'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
       : '';
     return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px">'+btns+reset+'</div>';
   }
 
-  function typeButtons(code, isTransv, hasOverride){
+  function typeButtons(code, isTransv, hasOverride, side){
     const stT='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
       +'border:2px solid '+(isTransv?'#0891b2':'#cbd5e1')+';background:'+(isTransv?'#e0f2fe':'#fff')+';color:'+(isTransv?'#0369a1':'#64748b')+';';
     const stM='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
       +'border:2px solid '+(!isTransv?'#7c3aed':'#cbd5e1')+';background:'+(!isTransv?'#f5f3ff':'#fff')+';color:'+(!isTransv?'#6d28d9':'#64748b')+';';
-    const btnT='<button onclick="setResourceType(\''+eA(code)+'\',\'transversal\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stT+'">📌 Transversale</button>';
-    const btnM='<button onclick="setResourceType(\''+eA(code)+'\',\'metier\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stM+'">⚙️ Métier</button>';
+    const btnT='<button onclick="setResourceType(\''+eA(code)+'\',\'transversal\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stT+'">📌 Transversale</button>';
+    const btnM='<button onclick="setResourceType(\''+eA(code)+'\',\'metier\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stM+'">⚙️ Métier</button>';
     const btnReset=hasOverride
-      ? '<button onclick="setResourceType(\''+eA(code)+'\',\'auto\');renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
+      ? '<button onclick="setResourceType(\''+eA(code)+'\',\'auto\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
       : '';
     return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">'+btnT+btnM+btnReset+'</div>';
   }
 
   const isTransvN=typeInfoN.isTransv;
-  const hasTypeOverrideN=!!S.typeOverrides[newCode];
-  const hasFamOverrideN=!!S.familyOverrides[newCode];
-  const rOTypeIsTransv=rO?(S.typeOverrides[rO.code]?S.typeOverrides[rO.code]==='transversal':isTransversalRes(rO)):false;
-  const hasTypeOverrideO=rO?!!S.typeOverrides[rO.code]:false;
-  const hasFamOverrideO=rO?!!S.familyOverrides[rO.code]:false;
+  const hasTypeOverrideN=!!S.typeOverrides[ovKey('new',newCode)];
+  const hasFamOverrideN=!!S.familyOverrides[ovKey('new',newCode)];
+  const rOTypeIsTransv=rO?(S.typeOverrides[ovKey('old',rO.code)]?S.typeOverrides[ovKey('old',rO.code)]==='transversal':isTransversalRes(rO)):false;
+  const hasTypeOverrideO=rO?!!S.typeOverrides[ovKey('old',rO.code)]:false;
+  const hasFamOverrideO=rO?!!S.familyOverrides[ovKey('old',rO.code)]:false;
 
   function valBtn(status,label,activeStyle){
     const isActive=v.status===status;
@@ -3897,7 +3939,7 @@ function renderCorrDetail(newCode){
   function kwEditor(code, side){
     const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
     if(!rr) return '';
-    const hasKwOverride=!!(S.kwOverrides||{})[code];
+    const hasKwOverride=!!(S.kwOverrides||{})[ovKey(side,code)];
     const kwInputId='kw-panel-'+code.replace(/[^a-z0-9]/gi,'-');
     const pills=(rr.mots_cles||[]).map(k=>{
       const ek=eA(k);
@@ -3915,7 +3957,36 @@ function renderCorrDetail(newCode){
       +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucun mot-clé</span>' )+'</div>'
       +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
         +'<input id="'+kwInputId+'-new" type="text" placeholder="Nouveau mot-clé…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
-        +'<button onclick="(function(){const inp=document.getElementById(\''+kwInputId+'-new\');const v=inp?inp.value.trim():\'\';if(!v)return;const rr2=('+( side==='new'?'S.new':'S.old' )+').find(x=>x.code===\''+eA(code)+'\');if(!rr2)return;rr2.mots_cles=[...(rr2.mots_cles||[]),v];S.kwOverrides[\''+eA(code)+'\']=[...(rr2.mots_cles)];S.rows.forEach(row=>{const aff=\''+side+'\' ===\'new\'?row.newCode===\''+eA(code)+'\':row.oldCode===\''+eA(code)+'\';if(!aff)return;const rO3=S.old.find(x=>x.code===row.oldCode);const rN3=S.new.find(x=>x.code===row.newCode);if(rO3&&rN3)row.sharedKeywords=arrayOverlap(rO3.mots_cles||[],rN3.mots_cles||[]).join(\', \');});recomputeMatching();renderCorr();buildKwList();saveState();renderCorrDetail(\''+eA(newCode)+'\');})()" style="padding:4px 8px;border-radius:5px;border:none;background:#1e3a5f;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
+        +'<button onclick="(function(){const inp=document.getElementById(\''+kwInputId+'-new\');const v=inp?inp.value.trim():\'\';if(!v)return;const rr2=('+( side==='new'?'S.new':'S.old' )+').find(x=>x.code===\''+eA(code)+'\');if(!rr2)return;rr2.mots_cles=[...(rr2.mots_cles||[]),v];S.kwOverrides[\''+eA(ovKey(side,code))+'\']=[...(rr2.mots_cles)];S.rows.forEach(row=>{const aff=\''+side+'\' ===\'new\'?row.newCode===\''+eA(code)+'\':row.oldCode===\''+eA(code)+'\';if(!aff)return;const rO3=S.old.find(x=>x.code===row.oldCode);const rN3=S.new.find(x=>x.code===row.newCode);if(rO3&&rN3)row.sharedKeywords=arrayOverlap(rO3.mots_cles||[],rN3.mots_cles||[]).join(\', \');});recomputeMatching();renderCorr();buildKwList();saveState();renderCorrDetail(\''+eA(newCode)+'\');})()" style="padding:4px 8px;border-radius:5px;border:none;background:#1e3a5f;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
+      +'</div>'
+      +resetBtn;
+  }
+
+  // R16: éditeur de compétences ciblées inline — même patron que kwEditor,
+  // mais les compétences n'entrent pas dans le calcul du score (pas de
+  // recomputeMatching nécessaire après modification).
+  function competenceEditor(code, side){
+    const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
+    if(!rr) return '';
+    const hasOverride=!!(S.competenceOverrides||{})[ovKey(side,code)];
+    const compInputId='comp-panel-'+code.replace(/[^a-z0-9]/gi,'-');
+    const pills=(rr.competences||[]).map(c=>{
+      const ec=eA(c);
+      return '<div style="display:flex;align-items:flex-start;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;margin:2px 0">'
+        +'<span style="flex:1">'+eH(c)+'</span>'
+        +'<button onclick="removeCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+ec+'\',\''+eA(newCode)+'\');" style="background:none;border:none;cursor:pointer;color:#166534;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0" title="Supprimer cette compétence">×</button>'
+        +'</div>';
+    }).join('');
+    const resetBtn = hasOverride
+      ? '<button onclick="resetCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+eA(newCode)+'\')" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b;cursor:pointer;margin-top:4px;display:block">↺ Rétablir compétences originales</button>'
+      : '';
+    return '<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:4px">Compétences ciblées'
+      +(hasOverride?' <span style="font-size:9px;background:#dcfce7;color:#166534;border-radius:8px;padding:1px 5px">modifiées</span>':'')
+      +'</div>'
+      +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucune compétence</span>' )+'</div>'
+      +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
+        +'<input id="'+compInputId+'-new" type="text" placeholder="Nouvelle compétence…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
+        +'<button onclick="addCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+compInputId+'\',\''+eA(newCode)+'\')" style="padding:4px 8px;border-radius:5px;border:none;background:#166534;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
       +'</div>'
       +resetBtn;
   }
@@ -3926,14 +3997,15 @@ function renderCorrDetail(newCode){
           +'<span class="code" style="font-size:10px">'+eH(rO.code)+'</span> Ancienne ressource'
         +'</div>'
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px">Type pédagogique</div>'
-        +typeButtons(rO.code,rOTypeIsTransv,hasTypeOverrideO)
+        +typeButtons(rO.code,rOTypeIsTransv,hasTypeOverrideO,'old')
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:2px">Famille</div>'
-        +famButtons(rO.code,resourceFamily(rO),hasFamOverrideO)
+        +famButtons(rO.code,resourceFamily(rO),hasFamOverrideO,'old')
         +kwEditor(rO.code,'old')
+        +competenceEditor(rO.code,'old')
       +'</div>')
     : '';
 
-  box.innerHTML=
+  const html=
     '<div class="detail-section">'
       +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">'
         +'<div>'
@@ -3966,13 +4038,31 @@ function renderCorrDetail(newCode){
           +'<span class="code code-new" style="font-size:10px">'+eH(rN?rN.code:'')+'</span> Nouvelle ressource'
         +'</div>'
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px">Type pédagogique</div>'
-        +typeButtons(newCode,isTransvN,hasTypeOverrideN)
+        +typeButtons(newCode,isTransvN,hasTypeOverrideN,'new')
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:2px">Famille</div>'
-        +famButtons(newCode,famN,hasFamOverrideN)
+        +famButtons(newCode,famN,hasFamOverrideN,'new')
         +kwEditor(newCode,'new')
+        +competenceEditor(newCode,'new')
       +'</div>'
       +editOldHtml
     +'</div>';
+
+  // R17: la même fenêtre de détail alimente le panneau latéral ET, si elle
+  // est ouverte, la modale d'édition rapide déclenchée par un clic sur une
+  // ligne du tableau — pas de logique dupliquée à maintenir à deux endroits.
+  box.innerHTML=html;
+  const modalBody=document.getElementById('modal-resource-detail-body');
+  if(modalBody) modalBody.innerHTML=html;
+  const modalTitle=document.getElementById('modal-resource-detail-title');
+  if(modalTitle) modalTitle.textContent=(rN?rN.code+' — '+rN.titre:'');
+}
+
+// R17: ouvre la modale d'édition rapide pour une ligne du tableau — évite
+// d'avoir à chercher le panneau latéral à droite de l'écran pour éditer une
+// ressource (validation, famille, type, mots-clés, compétences).
+function openResourceDetailModal(newCode){
+  selectCorrRow(newCode,false);
+  openModal('modal-resource-detail');
 }
 
 function selectCorrRow(newCode, showPlan=true){
@@ -4019,19 +4109,34 @@ function officialKeywords(r){
 
 function resourceKeywordType(r, side){
   if(side==='new'){
-    const override=S.typeOverrides[r.code];
+    const override=S.typeOverrides[ovKey('new',r.code)];
     if(override==='transversal') return 'transversal';
     if(override==='metier') return 'metier';
   }
   return isTransversalRes(r) ? 'transversal' : 'metier';
 }
 
-function applyKwOverrides(){
-  const all=[...S.old,...S.new];
-  Object.entries(S.kwOverrides||{}).forEach(([code,kws])=>{
-    const r=all.find(x=>x.code===code);
-    if(r) r.mots_cles=kws;
+// R20: parcourt une liste (S.old ou S.new) et applique les overrides dont la
+// clé composée "side:code" correspond à ce côté — évite de piocher au hasard
+// dans un tableau fusionné quand l'ancien et le nouveau partagent un code.
+function applyOverridesToSide(list, side, overridesMap, field){
+  (list||[]).forEach(r=>{
+    const key=ovKey(side,r.code);
+    if(Object.prototype.hasOwnProperty.call(overridesMap||{},key)) r[field]=overridesMap[key];
   });
+}
+function applyKwOverrides(){
+  applyOverridesToSide(S.old,'old',S.kwOverrides,'mots_cles');
+  applyOverridesToSide(S.new,'new',S.kwOverrides,'mots_cles');
+}
+
+// R15: applique les compétences modifiées manuellement, en conservant une
+// copie de l'original pour permettre un retour arrière (comme pour les
+// mots-clés, mais les compétences n'entrent pas dans le calcul du score).
+function applyCompetenceOverrides(){
+  [...S.old,...S.new].forEach(r=>{ if(!r._competences_orig) r._competences_orig=(r.competences||[]).slice(); });
+  applyOverridesToSide(S.old,'old',S.competenceOverrides,'competences');
+  applyOverridesToSide(S.new,'new',S.competenceOverrides,'competences');
 }
 
 function saveKwOverride(code,side,inputId){
@@ -4040,8 +4145,8 @@ function saveKwOverride(code,side,inputId){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
-  if(kws.length) S.kwOverrides[code]=kws;
-  else delete S.kwOverrides[code];
+  if(kws.length) S.kwOverrides[ovKey(side,code)]=kws;
+  else delete S.kwOverrides[ovKey(side,code)];
   r.mots_cles=kws;
   // Mettre à jour sharedKeywords dans les paires existantes
   S.rows.forEach(row=>{
@@ -4069,8 +4174,8 @@ function saveKwPanel(code, side, inputId, newCode){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
-  if(kws.length) S.kwOverrides[code]=kws;
-  else delete S.kwOverrides[code];
+  if(kws.length) S.kwOverrides[ovKey(side,code)]=kws;
+  else delete S.kwOverrides[ovKey(side,code)];
   r.mots_cles=kws;
   S.rows.forEach(row=>{
     const affected=side==='new'?row.newCode===code:row.oldCode===code;
@@ -4093,7 +4198,7 @@ function resetKwPanel(code, side, newCode){
   const r=list.find(x=>x.code===code);
   if(!r) return;
   const orig=r._mots_cles_orig||[];
-  delete S.kwOverrides[code];
+  delete S.kwOverrides[ovKey(side,code)];
   r.mots_cles=orig.slice();
   S.rows.forEach(row=>{
     const affected=side==='new'?row.newCode===code:row.oldCode===code;
@@ -4112,7 +4217,7 @@ function removeKwPanel(code, side, kwToRemove, newCode){
   const r=list.find(x=>x.code===code);
   if(!r) return;
   const kws=(r.mots_cles||[]).filter(k=>k!==kwToRemove);
-  S.kwOverrides[code]=kws;
+  S.kwOverrides[ovKey(side,code)]=kws;
   r.mots_cles=kws;
   S.rows.forEach(row=>{
     const affected=side==='new'?row.newCode===code:row.oldCode===code;
@@ -4125,7 +4230,56 @@ function removeKwPanel(code, side, kwToRemove, newCode){
   renderCorrDetail(newCode);
 }
 
+// R16: compétences ciblées — même patron que les mots-clés (add/remove/reset),
+// mais sans impact sur S.rows/recomputeMatching (les compétences ne pèsent
+// pas dans le score).
+function addCompetencePanel(code, side, inputId, newCode){
+  const inp=document.getElementById(inputId+'-new');
+  const val=inp?inp.value.trim():'';
+  if(!val) return;
+  const list=side==='new'?S.new:S.old;
+  const r=list.find(x=>x.code===code);
+  if(!r) return;
+  const comps=[...(r.competences||[]), val];
+  S.competenceOverrides[ovKey(side,code)]=comps;
+  r.competences=comps;
+  renderCorr();
+  addHist(code,'comp-edit','Compétence ajoutée : '+val);
+  renderCorrDetail(newCode);
+}
+
+function removeCompetencePanel(code, side, compToRemove, newCode){
+  const list=side==='new'?S.new:S.old;
+  const r=list.find(x=>x.code===code);
+  if(!r) return;
+  const comps=(r.competences||[]).filter(c=>c!==compToRemove);
+  S.competenceOverrides[ovKey(side,code)]=comps;
+  r.competences=comps;
+  renderCorr();
+  renderCorrDetail(newCode);
+}
+
+function resetCompetencePanel(code, side, newCode){
+  const list=side==='new'?S.new:S.old;
+  const r=list.find(x=>x.code===code);
+  if(!r) return;
+  const orig=r._competences_orig||[];
+  delete S.competenceOverrides[ovKey(side,code)];
+  r.competences=orig.slice();
+  renderCorr();
+  addHist(code,'comp-reset','Compétences rétablies à leur valeur originale');
+  renderCorrDetail(newCode);
+}
+
+// R20: tague chaque ressource avec son côté (old/new) pour pouvoir
+// construire la clé composée ovKey() partout où seul l'objet ressource est
+// disponible (resourceFamily, familySource, etc.).
+function tagResourceSides(){
+  S.old.forEach(r=>{ r.side='old'; });
+  S.new.forEach(r=>{ r.side='new'; });
+}
 function sanitizeOfficialKeywordData(){
+  tagResourceSides();
   [...S.old,...S.new].forEach(r=>{
     r.mots_cles=officialKeywords(r).map(k=>k.label);
     if(!r._mots_cles_orig) r._mots_cles_orig=r.mots_cles.slice(); // sauvegarde originale
@@ -4326,7 +4480,7 @@ function renderCorrEnhanced(){
     const extCodes2=S.extras?.[rN.code]||[];
     const mkOldEntry=(code,isPrimary)=>{const er=S.old.find(r=>r.code===code)||{code,titre:''};const tip=eA(er.code);const borderStyle=isPrimary?'':'border-top:1px dashed #cbd5e1;margin-top:4px;padding-top:4px;';return`<div style="${borderStyle}"><span class="code" style="cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(er.code)}</span><br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH((er.titre||'').slice(0,45))}</span></div>`;};
     const oldCellHtml=mkOldEntry(rO.code,true)+extCodes2.map(ec=>mkOldEntry(ec,false)).join('');
-    return `<tr class="tr-${lvl} corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer" onclick="selectCorrRow('${eA(rN.code)}',false)">
+    return `<tr class="tr-${lvl} corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer" onclick="openResourceDetailModal('${eA(rN.code)}')">
       <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.titre.slice(0,45))}</span></td>
       <td style="text-align:center;font-weight:700">${rN.semestre}</td>
       <td><span class="fam">${eH(resourceFamily(rN))}</span></td>
@@ -4982,12 +5136,13 @@ function renderProjectBadge() {
 async function loadProjectState() {
   if (!CURRENT_PROJECT_ID) return;
 
-  const [ovRes, valRes, kwRes, famRes, typRes, histRes] = await Promise.all([
+  const [ovRes, valRes, kwRes, famRes, typRes, compRes, histRes] = await Promise.all([
     db.from('overrides')       .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('validations')     .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('kw_overrides')    .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('family_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('type_overrides')  .select('*').eq('project_id', CURRENT_PROJECT_ID),
+    db.from('competence_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('history')         .select('*, profiles(display_name,email)')
                                .eq('project_id', CURRENT_PROJECT_ID)
                                .order('created_at', { ascending: false })
@@ -5008,17 +5163,21 @@ async function loadProjectState() {
     };
   });
 
-  // Reconstruire S.kwOverrides
+  // Reconstruire S.kwOverrides (clé composée side:code — cf. ovKey)
   S.kwOverrides = {};
-  (kwRes.data || []).forEach(r => { S.kwOverrides[r.resource_code] = r.keywords; });
+  (kwRes.data || []).forEach(r => { S.kwOverrides[ovKey(r.side,r.resource_code)] = r.keywords; });
 
   // Reconstruire S.familyOverrides
   S.familyOverrides = {};
-  (famRes.data || []).forEach(r => { S.familyOverrides[r.resource_code] = r.family; });
+  (famRes.data || []).forEach(r => { S.familyOverrides[ovKey(r.side,r.resource_code)] = r.family; });
 
   // Reconstruire S.typeOverrides
   S.typeOverrides = {};
-  (typRes.data || []).forEach(r => { S.typeOverrides[r.resource_code] = r.is_transversal; });
+  (typRes.data || []).forEach(r => { S.typeOverrides[ovKey(r.side,r.resource_code)] = r.is_transversal; });
+
+  // Reconstruire S.competenceOverrides
+  S.competenceOverrides = {};
+  (compRes.data || []).forEach(r => { S.competenceOverrides[ovKey(r.side,r.resource_code)] = r.competences; });
 
   // Reconstruire S.hist
   S.hist = (histRes.data || []).map(r => ({
@@ -5026,6 +5185,14 @@ async function loadProjectState() {
     msg: r.description, ts: r.created_at,
     user: r.profiles?.display_name || r.profiles?.email || '?'
   }));
+
+  // R18: pousser les mots-clés/compétences du projet chargé sur les objets
+  // ressources eux-mêmes (r.mots_cles / r.competences) — sinon S.kwOverrides /
+  // S.competenceOverrides seraient à jour mais l'affichage resterait sur les
+  // valeurs extraites du PDF ou d'un projet précédent tant qu'un autre appel
+  // n'aurait pas déclenché ce recalcul.
+  if (typeof applyKwOverrides === 'function') applyKwOverrides();
+  if (typeof applyCompetenceOverrides === 'function') applyCompetenceOverrides();
 
   // Les lignes ci-dessus réassignent S.overrides/S.validations/... à des objets
   // bruts : réinstaller les Proxy de synchro avant que l'utilisateur ne modifie
@@ -5090,69 +5257,104 @@ async function syncValidation(newCode, status, comment, validatedOldCode) {
 }
 
 /** Sauvegarde un override de mots-clés */
-async function syncKwOverride(resourceCode, keywords) {
+async function syncKwOverride(resourceCode, keywords, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   if (!keywords || keywords.length === 0) {
     const { error } = await db.from('kw_overrides')
       .delete()
       .eq('project_id', CURRENT_PROJECT_ID)
-      .eq('resource_code', resourceCode);
+      .eq('resource_code', resourceCode)
+      .eq('side', side);
     if (error) console.error('[Sync] syncKwOverride (delete):', error); else markSaved();
     return;
   }
   const { error } = await db.from('kw_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     keywords: keywords,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncKwOverride:', error); else markSaved();
 }
 
-/** Sauvegarde un override de famille */
-async function syncFamilyOverride(resourceCode, family) {
+/** Sauvegarde un override de compétences ciblées */
+async function syncCompetenceOverride(resourceCode, competences, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
+  if (!competences || competences.length === 0) {
+    const { error } = await db.from('competence_overrides')
+      .delete()
+      .eq('project_id', CURRENT_PROJECT_ID)
+      .eq('resource_code', resourceCode)
+      .eq('side', side);
+    if (error) console.error('[Sync] syncCompetenceOverride (delete):', error); else markSaved();
+    return;
+  }
+  const { error } = await db.from('competence_overrides').upsert({
+    project_id: CURRENT_PROJECT_ID,
+    resource_code: resourceCode,
+    side: side,
+    competences: competences,
+    updated_at: new Date().toISOString(),
+    updated_by: CURRENT_USER.id
+  }, { onConflict: 'project_id,resource_code,side' });
+  if (error) console.error('[Sync] syncCompetenceOverride:', error); else markSaved();
+}
+
+/** Sauvegarde un override de famille */
+async function syncFamilyOverride(resourceCode, family, side) {
+  if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('family_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     family,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
 }
 
 /** Supprime un override de famille (retour à l'analyse automatique) */
-async function deleteFamilyOverride(resourceCode) {
+async function deleteFamilyOverride(resourceCode, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('family_overrides')
     .delete()
     .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode);
+    .eq('resource_code', resourceCode)
+    .eq('side', side);
   if (error) console.error('[Sync] deleteFamilyOverride:', error); else markSaved();
 }
 
 /** Sauvegarde un override de type */
-async function syncTypeOverride(resourceCode, isTransversal) {
+async function syncTypeOverride(resourceCode, isTransversal, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('type_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
+    side: side,
     is_transversal: isTransversal,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
-  }, { onConflict: 'project_id,resource_code' });
+  }, { onConflict: 'project_id,resource_code,side' });
   if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
 }
 
 /** Supprime un override de type (retour à l'analyse automatique) */
-async function deleteTypeOverride(resourceCode) {
+async function deleteTypeOverride(resourceCode, side) {
   if (!CURRENT_PROJECT_ID) return;
+  side = side==='old' ? 'old' : 'new';
   const { error } = await db.from('type_overrides')
     .delete()
     .eq('project_id', CURRENT_PROJECT_ID)
-    .eq('resource_code', resourceCode);
+    .eq('resource_code', resourceCode)
+    .eq('side', side);
   if (error) console.error('[Sync] deleteTypeOverride:', error); else markSaved();
 }
 
@@ -5262,6 +5464,17 @@ function showSyncToast(msg) {
 // (ex. dans loadProjectState) : une réassignation directe remplace le Proxy
 // existant, ce qui arrêtait silencieusement la synchro vers Supabase après
 // la sélection d'un projet.
+// R20: S.kwOverrides/familyOverrides/typeOverrides/competenceOverrides sont
+// désormais clés par "side:code" (cf. ovKey côté app) pour ne pas confondre
+// une ressource ancienne et une ressource nouvelle qui partagent le même
+// code. On décompose la clé ici pour l'envoyer à Supabase sous forme de deux
+// colonnes (resource_code, side).
+function parseOvKey(key){
+  const s = String(key);
+  const i = s.indexOf(':');
+  return i < 0 ? { side: 'new', code: s } : { side: s.slice(0,i), code: s.slice(i+1) };
+}
+
 function installSyncProxies() {
   const _origOverrides = S.overrides || {};
   S.overrides = new Proxy(_origOverrides, {
@@ -5303,12 +5516,26 @@ function installSyncProxies() {
   S.kwOverrides = new Proxy(_origKw, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncKwOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) syncKwOverride(prop, null).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncKwOverride(code, null, side).catch(console.error); }
+      return true;
+    }
+  });
+
+  const _origComp = S.competenceOverrides || {};
+  S.competenceOverrides = new Proxy(_origComp, {
+    set(target, prop, value) {
+      target[prop] = value;
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, value, side).catch(console.error); }
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncCompetenceOverride(code, null, side).catch(console.error); }
       return true;
     }
   });
@@ -5317,12 +5544,12 @@ function installSyncProxies() {
   S.familyOverrides = new Proxy(_origFam, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncFamilyOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncFamilyOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) deleteFamilyOverride(prop).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteFamilyOverride(code, side).catch(console.error); }
       return true;
     }
   });
@@ -5331,12 +5558,12 @@ function installSyncProxies() {
   S.typeOverrides = new Proxy(_origType, {
     set(target, prop, value) {
       target[prop] = value;
-      if (CURRENT_PROJECT_ID) syncTypeOverride(prop, value).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); syncTypeOverride(code, value, side).catch(console.error); }
       return true;
     },
     deleteProperty(target, prop) {
       delete target[prop];
-      if (CURRENT_PROJECT_ID) deleteTypeOverride(prop).catch(console.error);
+      if (CURRENT_PROJECT_ID) { const {side,code}=parseOvKey(prop); deleteTypeOverride(code, side).catch(console.error); }
       return true;
     }
   });
