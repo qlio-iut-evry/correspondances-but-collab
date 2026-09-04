@@ -198,6 +198,11 @@ async function loadProjectState() {
     user: r.profiles?.display_name || r.profiles?.email || '?'
   }));
 
+  // Les lignes ci-dessus réassignent S.overrides/S.validations/... à des objets
+  // bruts : réinstaller les Proxy de synchro avant que l'utilisateur ne modifie
+  // quoi que ce soit, sinon ces modifications ne seraient plus propagées.
+  installSyncProxies();
+
   console.log('[Sync] État chargé depuis Supabase');
   if (S.loaded) { recomputeMatching(); renderCorr(); updateStats(); }
 }
@@ -379,20 +384,13 @@ function showSyncToast(msg) {
 // Ces patches interceptent les modifications et les envoient à Supabase
 // Ils s'exécutent APRÈS le chargement complet de l'appli originale.
 
-function patchAppFunctions() {
-
-  // Patch addHist → syncHistory
-  const _origAddHist = window.addHist;
-  window.addHist = function(code, type, msg) {
-    if (_origAddHist) _origAddHist(code, type, msg);
-    syncHistory(code, type, msg).catch(console.error);
-  };
-
-  // Patch saveState → no-op (on sauvegarde à chaque opération)
-  window.saveState = async function() { /* géré par supabase-sync */ };
-
-  // Patch setOverride (si existant) ou intercepter S.overrides
-  // On surveille les modifications de S.overrides via Proxy
+// Installe (ou réinstalle) les Proxy de synchro sur S.overrides / S.validations /
+// S.kwOverrides / S.familyOverrides / S.typeOverrides. Doit être rappelée
+// chaque fois que l'une de ces propriétés est réassignée à un objet brut
+// (ex. dans loadProjectState) : une réassignation directe remplace le Proxy
+// existant, ce qui arrêtait silencieusement la synchro vers Supabase après
+// la sélection d'un projet.
+function installSyncProxies() {
   const _origOverrides = S.overrides || {};
   S.overrides = new Proxy(_origOverrides, {
     set(target, prop, value) {
@@ -411,7 +409,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.validations via Proxy
   const _origValidations = S.validations || {};
   S.validations = new Proxy(_origValidations, {
     set(target, prop, value) {
@@ -425,7 +422,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.kwOverrides via Proxy
   const _origKw = S.kwOverrides || {};
   S.kwOverrides = new Proxy(_origKw, {
     set(target, prop, value) {
@@ -435,7 +431,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.familyOverrides via Proxy
   const _origFam = S.familyOverrides || {};
   S.familyOverrides = new Proxy(_origFam, {
     set(target, prop, value) {
@@ -445,7 +440,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.typeOverrides via Proxy
   const _origType = S.typeOverrides || {};
   S.typeOverrides = new Proxy(_origType, {
     set(target, prop, value) {
@@ -454,6 +448,23 @@ function patchAppFunctions() {
       return true;
     }
   });
+}
+
+function patchAppFunctions() {
+
+  // Patch addHist → syncHistory
+  const _origAddHist = window.addHist;
+  window.addHist = function(code, type, msg) {
+    if (_origAddHist) _origAddHist(code, type, msg);
+    syncHistory(code, type, msg).catch(console.error);
+  };
+
+  // Patch saveState → no-op (on sauvegarde à chaque opération)
+  window.saveState = async function() { /* géré par supabase-sync */ };
+
+  // Patch setOverride (si existant) ou intercepter S.overrides
+  // On surveille les modifications de S.overrides via Proxy
+  installSyncProxies();
 
   console.log('[Sync] Patches appliqués sur S');
 }

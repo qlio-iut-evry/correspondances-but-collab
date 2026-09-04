@@ -103,6 +103,8 @@ tr:hover td{background:#f8fafc}
 .pill-kw{background:#dcfce7;color:#166534}
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:6px;border:none;cursor:pointer;font-size:12px;font-weight:600;transition:all .15s;white-space:nowrap}
+@keyframes flashRefresh{0%{background:#fef9c3}100%{background:transparent}}
+.flash-refresh{animation:flashRefresh 1s ease-out}
 .btn:hover{opacity:.85}
 .btn-primary{background:var(--P);color:#fff}
 .btn-green{background:#16a34a;color:#fff}
@@ -363,7 +365,7 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
     <!-- Groupe : Calcul -->
     <div style="display:flex;align-items:center;gap:5px">
       <span style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px">Calcul</span>
-      <button onclick="recomputeMatching();autoFillMatching();" title="Relance l'algorithme et complète toutes les cases vides. Les affectations manuelles sont conservées." style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">⚡ Calculer</button>
+      <button onclick="handleCalculerClick(this)" title="Relance l'algorithme et complète toutes les cases vides. Les affectations manuelles sont conservées." style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">⚡ Calculer</button>
       <button onclick="clearAllMatching()" title="Supprimer toutes les correspondances — le tableau sera vierge pour une affectation entièrement manuelle." style="background:#fff;color:#dc2626;border:1px solid #fca5a5;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer">✕ Tout vider</button>
     </div>
 
@@ -2598,13 +2600,41 @@ function autoFillMatching(){
 }
 function clearAllMatching(){
   saveSnapshot();
-  if(!confirm('Supprimer toutes les correspondances ? Le tableau sera vierge.\nVous pourrez affecter chaque ressource manuellement via le bouton ✎.\nLes validations et familles sont conservées.')) return;
-  // Poser un null override sur chaque nouvelle ressource = aucune affectée
-  S.new.forEach(r=>{ S.overrides[r.code]=null; });
+  if(!confirm('Supprimer toutes les correspondances ? Le tableau sera vierge.\nVous pourrez affecter chaque ressource manuellement via le bouton ✎, ou cliquer sur ⚡ Calculer pour relancer l\'affectation automatique.\nLes validations et familles sont conservées.')) return;
+  // Vrai reset : on retire les overrides (pas de null) pour que ces ressources
+  // restent éligibles à un futur ⚡ Calculer. Un null explicite reste réservé au
+  // refus d'une correspondance sur une ressource précise (S.overrides[code]=null
+  // ailleurs dans le code), qui doit rester protégé d'un recalcul global.
+  S.new.forEach(r=>{ delete S.overrides[r.code]; });
   S.matching={};
   S.extras={};
   addHist('ALL','modifie','Toutes les correspondances supprimées');
   updateStats(); renderCorr();
+}
+
+function handleCalculerClick(btn){
+  const prevLabel = btn ? btn.textContent : null;
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Calcul…'; }
+  const beforeMatched = Object.keys(S.matching).length;
+  autoFillMatching();
+  const afterMatched = Object.keys(S.matching).length;
+  const filled = afterMatched - beforeMatched;
+  const tbl = document.getElementById('corr-tbl');
+  if(tbl){
+    tbl.classList.remove('flash-refresh');
+    void tbl.offsetWidth; // force le redémarrage de l'animation
+    tbl.classList.add('flash-refresh');
+  }
+  if(typeof showToast==='function'){
+    showToast(filled>0
+      ? `✅ Calcul terminé — ${filled} nouvelle(s) correspondance(s), ${afterMatched}/${S.new.length} au total`
+      : `✅ Calcul terminé — ${afterMatched}/${S.new.length} correspondances (aucun changement)`,
+      'success');
+  }
+  if(btn){
+    btn.textContent='✓ Calculé';
+    setTimeout(()=>{ btn.disabled=false; btn.textContent=prevLabel||'⚡ Calculer'; }, 1200);
+  }
 }
 function resetValidations(){
   if(!confirm('Réinitialiser toutes les validations ? Les overrides manuels (remplacements) sont conservés.')) return;
@@ -4731,6 +4761,11 @@ async function loadProjectState() {
     user: r.profiles?.display_name || r.profiles?.email || '?'
   }));
 
+  // Les lignes ci-dessus réassignent S.overrides/S.validations/... à des objets
+  // bruts : réinstaller les Proxy de synchro avant que l'utilisateur ne modifie
+  // quoi que ce soit, sinon ces modifications ne seraient plus propagées.
+  installSyncProxies();
+
   console.log('[Sync] État chargé depuis Supabase');
   if (S.loaded) { recomputeMatching(); renderCorr(); updateStats(); }
 }
@@ -4912,20 +4947,13 @@ function showSyncToast(msg) {
 // Ces patches interceptent les modifications et les envoient à Supabase
 // Ils s'exécutent APRÈS le chargement complet de l'appli originale.
 
-function patchAppFunctions() {
-
-  // Patch addHist → syncHistory
-  const _origAddHist = window.addHist;
-  window.addHist = function(code, type, msg) {
-    if (_origAddHist) _origAddHist(code, type, msg);
-    syncHistory(code, type, msg).catch(console.error);
-  };
-
-  // Patch saveState → no-op (on sauvegarde à chaque opération)
-  window.saveState = async function() { /* géré par supabase-sync */ };
-
-  // Patch setOverride (si existant) ou intercepter S.overrides
-  // On surveille les modifications de S.overrides via Proxy
+// Installe (ou réinstalle) les Proxy de synchro sur S.overrides / S.validations /
+// S.kwOverrides / S.familyOverrides / S.typeOverrides. Doit être rappelée
+// chaque fois que l'une de ces propriétés est réassignée à un objet brut
+// (ex. dans loadProjectState) : une réassignation directe remplace le Proxy
+// existant, ce qui arrêtait silencieusement la synchro vers Supabase après
+// la sélection d'un projet.
+function installSyncProxies() {
   const _origOverrides = S.overrides || {};
   S.overrides = new Proxy(_origOverrides, {
     set(target, prop, value) {
@@ -4944,7 +4972,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.validations via Proxy
   const _origValidations = S.validations || {};
   S.validations = new Proxy(_origValidations, {
     set(target, prop, value) {
@@ -4958,7 +4985,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.kwOverrides via Proxy
   const _origKw = S.kwOverrides || {};
   S.kwOverrides = new Proxy(_origKw, {
     set(target, prop, value) {
@@ -4968,7 +4994,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.familyOverrides via Proxy
   const _origFam = S.familyOverrides || {};
   S.familyOverrides = new Proxy(_origFam, {
     set(target, prop, value) {
@@ -4978,7 +5003,6 @@ function patchAppFunctions() {
     }
   });
 
-  // Patch S.typeOverrides via Proxy
   const _origType = S.typeOverrides || {};
   S.typeOverrides = new Proxy(_origType, {
     set(target, prop, value) {
@@ -4987,6 +5011,23 @@ function patchAppFunctions() {
       return true;
     }
   });
+}
+
+function patchAppFunctions() {
+
+  // Patch addHist → syncHistory
+  const _origAddHist = window.addHist;
+  window.addHist = function(code, type, msg) {
+    if (_origAddHist) _origAddHist(code, type, msg);
+    syncHistory(code, type, msg).catch(console.error);
+  };
+
+  // Patch saveState → no-op (on sauvegarde à chaque opération)
+  window.saveState = async function() { /* géré par supabase-sync */ };
+
+  // Patch setOverride (si existant) ou intercepter S.overrides
+  // On surveille les modifications de S.overrides via Proxy
+  installSyncProxies();
 
   console.log('[Sync] Patches appliqués sur S');
 }
