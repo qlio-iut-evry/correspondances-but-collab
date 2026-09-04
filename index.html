@@ -2684,39 +2684,138 @@ function setResourceFamily(code, family){
 function openReplace(newCode){
   const rN=S.new.find(r=>r.code===newCode); if(!rN) return;
   S.replaceTarget=newCode;
-  const ap=getActiveParcours();
-  const nT=isTransversalRes(rN);
+  S.replaceUI={sem:'',type:'',assigned:''};
+  renderReplaceList();
+  openModal('modal-replace');
+}
+
+function setReplaceFilter(key,val){
+  S.replaceUI[key]=val;
+  renderReplaceList();
+}
+
+// Retrouve, pour une ressource ancienne donnée, la ressource nouvelle (autre que
+// excludeNewCode) qui l'utilise déjà comme correspondance principale ou secondaire.
+// On regarde S.matching (affectation effective, auto ou manuelle) et pas seulement
+// S.overrides (qui ne contient que les affectations manuelles) : sinon les
+// affectations automatiques ne seraient jamais détectées comme "déjà prises".
+function findOldResourceUsage(oldCode,excludeNewCode){
+  for(const [nc,m] of Object.entries(S.matching)){
+    if(nc===excludeNewCode) continue;
+    if(m?.oldCode===oldCode) return nc;
+  }
+  for(const [nc,extras] of Object.entries(S.extras||{})){
+    if(nc===excludeNewCode) continue;
+    if((extras||[]).includes(oldCode)) return nc;
+  }
+  return null;
+}
+
+function renderReplaceList(){
+  const newCode=S.replaceTarget;
+  const rN=S.new.find(r=>r.code===newCode); if(!rN) return;
+  const ui=S.replaceUI||{sem:'',type:'',assigned:''};
   const currentPrimary=S.matching[newCode]?.oldCode;
   const currentExtras=S.extras?.[newCode]||[];
-  const opts=S.old
-    .filter(r=>isTransversalRes(r)===nT&&(r.parcours_code?ap.has(r.parcours_code):ap.has('TC')))
-    .map(r=>{let row=S.rows.find(x=>x.oldCode===r.code&&x.newCode===newCode);if(!row)row=compareRow(r,rN);return{r,sc:row?adjScore(row):0};})
-    .sort((a,b)=>b.sc-a.sc);
+
+  // R1: toutes les anciennes ressources sont proposées (aucun filtre imposé par
+  // type ou parcours) — la détection automatique du type peut se tromper, donc
+  // le filtrage par type reste disponible mais optionnel, via l'UI ci-dessous.
+  let opts=S.old.map(r=>{
+    let row=S.rows.find(x=>x.oldCode===r.code&&x.newCode===newCode);
+    if(!row) row=compareRow(r,rN);
+    return {r,sc:row?adjScore(row):0};
+  }).sort((a,b)=>b.sc-a.sc);
+
+  if(ui.sem) opts=opts.filter(({r})=>String(r.semestre)===String(ui.sem));
+  if(ui.type==='transversale') opts=opts.filter(({r})=>isTransversalRes(r));
+  if(ui.type==='metier') opts=opts.filter(({r})=>!isTransversalRes(r));
+  if(ui.assigned==='libres') opts=opts.filter(({r})=>!findOldResourceUsage(r.code,newCode));
+  if(ui.assigned==='affectees') opts=opts.filter(({r})=>findOldResourceUsage(r.code,newCode));
+
+  const semOptions=[...new Set(S.old.map(r=>r.semestre))].sort((a,b)=>a-b);
+
   let html=`<p style="margin-bottom:6px;font-size:13px">Associer des ressources anciennes à : <strong>${eH(rN.code)}</strong> — ${eH(rN.titre)}</p>
   <p style="font-size:11px;color:#64748b;margin-bottom:10px">Cochez une ou plusieurs ressources. La première cochée devient la correspondance principale.</p>
-  <div style="max-height:420px;overflow-y:auto">`;
+  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:8px 10px;background:#f8fafc;border-radius:8px">
+    <select onchange="setReplaceFilter('sem',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px">
+      <option value=""${ui.sem?'':' selected'}>Tous semestres</option>
+      ${semOptions.map(s=>`<option value="${eA(s)}"${String(ui.sem)===String(s)?' selected':''}>Semestre ${eH(s)}</option>`).join('')}
+    </select>
+    <select onchange="setReplaceFilter('type',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px">
+      <option value=""${ui.type?'':' selected'}>Tous types</option>
+      <option value="transversale"${ui.type==='transversale'?' selected':''}>Transversales</option>
+      <option value="metier"${ui.type==='metier'?' selected':''}>Métier</option>
+    </select>
+    <select onchange="setReplaceFilter('assigned',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px">
+      <option value=""${ui.assigned?'':' selected'}>Toutes (libres + affectées)</option>
+      <option value="libres"${ui.assigned==='libres'?' selected':''}>Libres seulement</option>
+      <option value="affectees"${ui.assigned==='affectees'?' selected':''}>Déjà affectées seulement</option>
+    </select>
+    <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" style="margin-left:auto;color:#dc2626;border-color:#fca5a5">🗑 Aucune correspondance — laisser vide</button>
+  </div>
+  <div style="max-height:380px;overflow-y:auto">`;
+
+  if(!opts.length) html+='<p class="hint" style="padding:10px">Aucune ressource ne correspond à ces filtres.</p>';
+
   opts.forEach(({r,sc})=>{
     const isPrimary=r.code===currentPrimary;
     const checked=isPrimary||currentExtras.includes(r.code);
+    const usedBy=findOldResourceUsage(r.code,newCode);
+    const usedByRes=usedBy?S.new.find(x=>x.code===usedBy):null;
     html+=`<label style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer;border:1px solid ${checked?'#1e3a5f':'#e2e8f0'};background:${checked?'#eff6ff':'#fff'};margin-bottom:4px">
       <input type="checkbox" value="${eA(r.code)}" ${checked?'checked':''} style="width:15px;height:15px;cursor:pointer">
       <div style="flex:1;min-width:0">
         <span class="code">${eH(r.code)}</span>${isPrimary?'<span style="font-size:10px;color:#1e3a5f;margin-left:4px">(principale)</span>':''}
         <span style="font-weight:600;font-size:12px;margin-left:4px">${eH(r.titre.slice(0,55))}</span>
         <span class="hint" style="margin-left:6px">S${r.semestre} · ${eH(displayParcours(r.parcours_code))}</span>
+        ${usedBy?`<div style="font-size:10px;color:#dc2626;font-weight:600;margin-top:2px">⚠️ Déjà affectée à ${eH(usedBy)}${usedByRes?' — '+eH(usedByRes.titre.slice(0,40)):''}</div>`:''}
       </div>
       ${scoreBadge(sc)}
     </label>`;
   });
   html+='</div>';
   document.getElementById('modal-replace-body').innerHTML=html;
-  openModal('modal-replace');
 }
+
+function clearReplaceTarget(){
+  document.querySelectorAll('#modal-replace-body input[type=checkbox]:checked').forEach(cb=>{cb.checked=false;});
+  confirmReplace();
+}
+
 function confirmReplace(){
   const nc=S.replaceTarget; if(!nc) return;
-  saveSnapshot();
   const checked=[...document.querySelectorAll('#modal-replace-body input[type=checkbox]:checked')].map(el=>el.value);
+
+  // R4/R5: si une ressource cochée est déjà affectée à une AUTRE ressource nouvelle
+  // (principale ou secondaire), avertir avant de la désaffecter de l'autre.
+  const conflicts=checked
+    .map(oc=>({oldCode:oc, otherNewCode:findOldResourceUsage(oc,nc)}))
+    .filter(c=>c.otherNewCode);
+
+  if(conflicts.length){
+    const lines=conflicts.map(c=>{
+      const other=S.new.find(r=>r.code===c.otherNewCode);
+      return `• ${c.oldCode} est actuellement affectée à ${c.otherNewCode}${other?' — '+other.titre.slice(0,40):''}`;
+    }).join('\n');
+    const ok=confirm(`Cette affectation va désaffecter :\n${lines}\n\nCes ressources deviendront "sans correspondance". Continuer ?`);
+    if(!ok) return;
+  }
+
+  saveSnapshot();
   if(!S.extras) S.extras={};
+
+  conflicts.forEach(c=>{
+    const other=c.otherNewCode;
+    // La ressource "other" perdait c.oldCode qu'elle tenait automatiquement ou
+    // manuellement — dans les deux cas elle devient explicitement sans
+    // correspondance (S.overrides[other]=null), pas seulement si elle avait
+    // un override manuel dessus.
+    S.overrides[other]=null;
+    if(S.extras[other]) S.extras[other]=S.extras[other].filter(x=>x!==c.oldCode);
+    addHist(other,'modifie',`Désaffectée de ${c.oldCode} (réaffectée à ${nc})`);
+  });
+
   if(!checked.length){
     S.overrides[nc]=null;  // null = explicitement sans correspondance
     delete S.extras[nc];
