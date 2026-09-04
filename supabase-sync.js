@@ -139,8 +139,49 @@ async function createProject(name, oldProgramName, newProgramName) {
 async function selectProject(projectId) {
   CURRENT_PROJECT_ID = projectId;
   await loadProjectState();
+  applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
+}
+
+/** Recharge l'état du projet actuellement sélectionné depuis Supabase
+ * (bouton 🔄 dans l'en-tête), sans repasser par la modale de sélection. */
+async function reloadCurrentProject(){
+  if (!CURRENT_PROJECT_ID) return;
+  await loadProjectState();
+  applyProjectSettings((window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID));
+  if (typeof showToast === 'function') showToast('🔄 Projet rechargé depuis Supabase', 'success');
+}
+
+/** Applique à l'interface les réglages stockés sur le projet (parcours actifs,
+ * pondérations) — appelé à la sélection d'un projet et lors d'un rechargement. */
+function applyProjectSettings(proj){
+  if (!proj) return;
+  const active = Array.isArray(proj.active_parcours) && proj.active_parcours.length
+    ? new Set(proj.active_parcours)
+    : new Set(['TC','MP','PSC','PSMI','MTD']);
+  document.querySelectorAll('#parcBar input[type=checkbox]').forEach(cb=>{ cb.checked = active.has(cb.value); });
+  document.querySelectorAll('.parc-cb').forEach(el=>{
+    const cb=el.querySelector('input');
+    if (cb) el.classList.toggle('checked', cb.checked);
+  });
+  if (proj.weights && Object.keys(proj.weights).length && typeof normalizeWeightMap==='function') {
+    S.weights = normalizeWeightMap(proj.weights);
+    if (typeof updateWeightUI==='function') updateWeightUI(S.weights);
+  }
+  if (S.loaded && typeof recomputeMatching==='function') {
+    recomputeMatching(); updateStats(); renderCorr();
+  }
+}
+
+/** Sauvegarde les parcours actifs et les pondérations sur le projet courant. */
+async function syncProjectSettings(){
+  if (!CURRENT_PROJECT_ID || typeof getActiveParcours!=='function') return;
+  const active_parcours = [...getActiveParcours()];
+  const { error } = await db.from('projects')
+    .update({ active_parcours, weights: S.weights || null })
+    .eq('id', CURRENT_PROJECT_ID);
+  if (error) console.error('[Sync] syncProjectSettings:', error); else markSaved();
 }
 
 function renderProjectBadge() {
@@ -148,7 +189,7 @@ function renderProjectBadge() {
   if (!badge) return;
   const proj = (window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID);
   if (proj) {
-    badge.textContent = proj.name;
+    badge.textContent = proj.name + ' ▾';
     badge.style.display = '';
   }
 }
@@ -683,8 +724,10 @@ function renderUserBadge(user) {
   ui.id = 'collab-ui';
   ui.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0';
   ui.innerHTML = `
-    <span id="project-badge" style="display:none;background:rgba(255,255,255,.2);color:#fff;
+    <span id="project-badge" onclick="showProjectModal()" title="Cliquer pour changer de projet" style="display:none;cursor:pointer;background:rgba(255,255,255,.2);color:#fff;
       font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;white-space:nowrap"></span>
+    <button onclick="reloadCurrentProject()" title="Recharger les données du projet depuis Supabase" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);
+      border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer">🔄</button>
     <span id="sync-indicator" style="font-size:11px;color:rgba(255,255,255,.8);white-space:nowrap"></span>
     <span id="last-save-indicator" style="font-size:11px;color:rgba(255,255,255,.65);white-space:nowrap"></span>
     <div id="user-badge" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);

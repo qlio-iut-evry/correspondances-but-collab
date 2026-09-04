@@ -1636,6 +1636,7 @@ function onParcChange(){
   recomputeMatching();
   renderCorr();
   updateStats();
+  if (typeof syncProjectSettings === 'function') syncProjectSettings().catch(console.error);
 }
 
 // ===== ADJUSTED SCORE =====
@@ -1684,6 +1685,7 @@ function adjScore(row){
   if(oldTransv !== newTransv) return 0;
 
   const titleSc = row.titleScore || 0;
+  const textSc = row.textScore || 0;
 
   // Famille : recalculée à la volée (prend en compte overrides manuels)
   const _rO=S.old?.find(r=>r.code===row.oldCode), _rN=S.new?.find(r=>r.code===row.newCode);
@@ -1700,13 +1702,18 @@ function adjScore(row){
   const kwCount = row.sharedKeywords ? row.sharedKeywords.split(',').filter(k=>k.trim()).length : 0;
   const kwSc = Math.min(100, kwCount * 20);
 
-  // Score composite : titre 40% + famille 25% + semestre 20% + mots-clés 15%
-  let score = 0.40*titleSc + 0.25*famSc + 0.20*semSc + 0.15*kwSc;
-
-  // Bonus code (+5 si même numéro de ressource ET similarité titre ≥ 50%)
+  // Code : même numéro de ressource (indice de continuité entre programmes)
   const ocN=(row.oldCode||'').replace(/^R\d+(?:\.[A-Z]+)?\.(\d+)$/i,'$1');
   const ncN=(row.newCode||'').replace(/^R\d+(?:\.[A-Z]+)?\.(\d+)$/i,'$1');
-  if(ocN===ncN && ocN!==row.oldCode && titleSc>=50) score=Math.min(100,score+5);
+  const codeSc = (ocN===ncN && ocN!==row.oldCode) ? 100 : 0;
+
+  // R8: le score composite suit les pondérations réglées par l'utilisateur
+  // (modale "Pondération", S.weights — clés code/titre/texte/famille/semestre/
+  // mots_cles, sommant à 100). Avant ce correctif, adjScore() utilisait des
+  // pourcentages fixes et ignorait S.weights : les curseurs n'avaient aucun effet.
+  const w = S.weights || {code:30,titre:20,texte:20,famille:15,semestre:10,mots_cles:5};
+  let score = (w.code||0)/100*codeSc + (w.titre||0)/100*titleSc + (w.texte||0)/100*textSc
+            + (w.famille||0)/100*famSc + (w.semestre||0)/100*semSc + (w.mots_cles||0)/100*kwSc;
 
   // Priorité titre identique : ≥ 70% mots communs → score garanti ≥ 90
   if(titleSc>=70) score=Math.max(90,score);
@@ -3080,6 +3087,7 @@ function applyWeights(){
   S.weights=normalizeWeightMap(getWeightsFromUI());
   updateWeightUI(S.weights);
   closeModal('modal-weights');
+  if (typeof syncProjectSettings === 'function') syncProjectSettings().catch(console.error);
   if(!S.loaded){
     launchCompute();
   } else {
@@ -4801,8 +4809,49 @@ async function createProject(name, oldProgramName, newProgramName) {
 async function selectProject(projectId) {
   CURRENT_PROJECT_ID = projectId;
   await loadProjectState();
+  applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
+}
+
+/** Recharge l'état du projet actuellement sélectionné depuis Supabase
+ * (bouton 🔄 dans l'en-tête), sans repasser par la modale de sélection. */
+async function reloadCurrentProject(){
+  if (!CURRENT_PROJECT_ID) return;
+  await loadProjectState();
+  applyProjectSettings((window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID));
+  if (typeof showToast === 'function') showToast('🔄 Projet rechargé depuis Supabase', 'success');
+}
+
+/** Applique à l'interface les réglages stockés sur le projet (parcours actifs,
+ * pondérations) — appelé à la sélection d'un projet et lors d'un rechargement. */
+function applyProjectSettings(proj){
+  if (!proj) return;
+  const active = Array.isArray(proj.active_parcours) && proj.active_parcours.length
+    ? new Set(proj.active_parcours)
+    : new Set(['TC','MP','PSC','PSMI','MTD']);
+  document.querySelectorAll('#parcBar input[type=checkbox]').forEach(cb=>{ cb.checked = active.has(cb.value); });
+  document.querySelectorAll('.parc-cb').forEach(el=>{
+    const cb=el.querySelector('input');
+    if (cb) el.classList.toggle('checked', cb.checked);
+  });
+  if (proj.weights && Object.keys(proj.weights).length && typeof normalizeWeightMap==='function') {
+    S.weights = normalizeWeightMap(proj.weights);
+    if (typeof updateWeightUI==='function') updateWeightUI(S.weights);
+  }
+  if (S.loaded && typeof recomputeMatching==='function') {
+    recomputeMatching(); updateStats(); renderCorr();
+  }
+}
+
+/** Sauvegarde les parcours actifs et les pondérations sur le projet courant. */
+async function syncProjectSettings(){
+  if (!CURRENT_PROJECT_ID || typeof getActiveParcours!=='function') return;
+  const active_parcours = [...getActiveParcours()];
+  const { error } = await db.from('projects')
+    .update({ active_parcours, weights: S.weights || null })
+    .eq('id', CURRENT_PROJECT_ID);
+  if (error) console.error('[Sync] syncProjectSettings:', error); else markSaved();
 }
 
 function renderProjectBadge() {
@@ -4810,7 +4859,7 @@ function renderProjectBadge() {
   if (!badge) return;
   const proj = (window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID);
   if (proj) {
-    badge.textContent = proj.name;
+    badge.textContent = proj.name + ' ▾';
     badge.style.display = '';
   }
 }
@@ -5345,8 +5394,10 @@ function renderUserBadge(user) {
   ui.id = 'collab-ui';
   ui.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0';
   ui.innerHTML = `
-    <span id="project-badge" style="display:none;background:rgba(255,255,255,.2);color:#fff;
+    <span id="project-badge" onclick="showProjectModal()" title="Cliquer pour changer de projet" style="display:none;cursor:pointer;background:rgba(255,255,255,.2);color:#fff;
       font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;white-space:nowrap"></span>
+    <button onclick="reloadCurrentProject()" title="Recharger les données du projet depuis Supabase" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);
+      border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer">🔄</button>
     <span id="sync-indicator" style="font-size:11px;color:rgba(255,255,255,.8);white-space:nowrap"></span>
     <span id="last-save-indicator" style="font-size:11px;color:rgba(255,255,255,.65);white-space:nowrap"></span>
     <div id="user-badge" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);

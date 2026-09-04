@@ -30,7 +30,9 @@ CREATE TABLE projects (
   name             TEXT NOT NULL,
   old_program_name TEXT,
   new_program_name TEXT,
-  weights          JSONB DEFAULT '{"titre":40,"famille":25,"semestre":20,"motsClés":15}',
+  -- Clés attendues par adjScore() côté client : code, titre, texte, famille, semestre, mots_cles (somme = 100)
+  weights          JSONB DEFAULT '{"code":30,"titre":20,"texte":20,"famille":15,"semestre":10,"mots_cles":5}',
+  active_parcours  JSONB DEFAULT '["TC","MP","PSC","PSMI","MTD"]',
   created_at       TIMESTAMPTZ DEFAULT NOW(),
   created_by       UUID REFERENCES profiles(id),
   is_active        BOOLEAN DEFAULT TRUE
@@ -149,3 +151,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE kw_overrides;
 ALTER PUBLICATION supabase_realtime ADD TABLE family_overrides;
 ALTER PUBLICATION supabase_realtime ADD TABLE type_overrides;
 ALTER PUBLICATION supabase_realtime ADD TABLE history;
+
+-- ════════════════════════════════════════════════════════════════
+-- MIGRATION — à exécuter dans Supabase > SQL Editor > New query
+-- pour un projet Supabase déjà créé (ne pas relancer tout le fichier
+-- ci-dessus, les CREATE TABLE échoueraient sur les tables existantes).
+-- Idempotent : peut être exécutée plusieurs fois sans risque.
+-- ════════════════════════════════════════════════════════════════
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_parcours JSONB DEFAULT '["TC","MP","PSC","PSMI","MTD"]';
