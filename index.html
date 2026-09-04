@@ -4116,17 +4116,23 @@ function renderCorrEnhanced(){
   let rows=[];
   S.new.forEach(rN=>{
     if(sem && rN.semestre!=sem) return;
-    // Ressource explicitement sans appariement
-    if(rN.code in S.overrides && S.overrides[rN.code]===null){
+    // R9: une ressource sans correspondance actuelle (refus explicite via
+    // S.overrides[code]=null, OU tout simplement jamais appariée par
+    // l'algorithme et jamais touchée manuellement) doit rester visible à sa
+    // place dans le tableau — sinon elle disparaît sans explication, y
+    // compris du panneau "sans correspondance" qui ne liste que les
+    // ANCIENNES ressources inutilisées, pas les nouvelles.
+    if(!S.matching[rN.code]){
       if(fam && resourceFamily(rN)!==fam) return;
       const isTransv=isTransversalRes(rN);
       if(transv==='oui' && !isTransv) return;
       if(transv==='non' && isTransv) return;
       if(valFil && valFil!=='aucune') return;
-      rows.push({rN,rO:null,score:0,val:{},manual:true,shared:false,scoreRow:{},isTransv,transition:{bucket:'risk',cls:'trn-difficile',label:'Sans appariement'},noMatch:true});
+      const manual=rN.code in S.overrides; // true = refus explicite, false = jamais apparié
+      rows.push({rN,rO:null,score:0,val:{},manual,shared:false,scoreRow:{},isTransv,transition:{bucket:'risk',cls:'trn-difficile',label:'Sans appariement'},noMatch:true});
       return;
     }
-    const m=S.matching[rN.code]; if(!m) return;
+    const m=S.matching[rN.code];
     const rO=S.old.find(r=>r.code===m.oldCode); if(!rO) return;
     if(fam && resourceFamily(rN)!==fam && resourceFamily(rO)!==fam) return;
     const scoreRow=S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code)||{};
@@ -4155,7 +4161,6 @@ function renderCorrEnhanced(){
   // Chips calculées sur TOUS les semestres (sans filtre semestre) pour rester visibles
   const allSemGroups={};
   S.new.forEach(rN=>{
-    if(!S.matching[rN.code] && !(rN.code in S.overrides)) return;
     (allSemGroups[rN.semestre]||=[]).push(rN);
   });
   const semChips=Object.keys(allSemGroups).sort((a,b)=>a-b).map(s=>
