@@ -4688,6 +4688,15 @@ try {
 let CURRENT_PROJECT_ID = null;   // UUID du projet actif
 let CURRENT_USER       = null;   // { id, email, display_name }
 let _realtimeChannel   = null;   // canal Supabase Realtime
+let _lastSaveTs        = null;   // Date de la dernière écriture réussie vers Supabase
+
+/** Met à jour l'horodatage et l'indicateur "Dernière sauvegarde" — n'appeler
+ * qu'après une écriture confirmée sans erreur par Supabase. */
+function markSaved(){
+  _lastSaveTs = new Date();
+  const el = document.getElementById('last-save-indicator');
+  if (el) el.textContent = '💾 Enregistré à ' + _lastSaveTs.toLocaleTimeString('fr-FR');
+}
 
 // ── Authentification ──────────────────────────────────────────────────────────
 
@@ -4880,35 +4889,38 @@ async function saveState() {
 /** Sauvegarde un override */
 async function syncOverride(newCode, oldCode) {
   if (!CURRENT_PROJECT_ID) return;
-  await db.from('overrides').upsert({
+  const { error } = await db.from('overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     new_code: newCode,
     old_code: oldCode || null,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,new_code' });
+  if (error) console.error('[Sync] syncOverride:', error); else markSaved();
 }
 
 /** Supprime un override */
 async function deleteOverride(newCode) {
   if (!CURRENT_PROJECT_ID) return;
-  await db.from('overrides')
+  const { error } = await db.from('overrides')
     .delete()
     .eq('project_id', CURRENT_PROJECT_ID)
     .eq('new_code', newCode);
+  if (error) console.error('[Sync] deleteOverride:', error); else markSaved();
 }
 
 /** Sauvegarde une validation */
 async function syncValidation(newCode, status, comment, validatedOldCode) {
   if (!CURRENT_PROJECT_ID) return;
   if (!status) {
-    await db.from('validations')
+    const { error } = await db.from('validations')
       .delete()
       .eq('project_id', CURRENT_PROJECT_ID)
       .eq('new_code', newCode);
+    if (error) console.error('[Sync] syncValidation (delete):', error); else markSaved();
     return;
   }
-  await db.from('validations').upsert({
+  const { error } = await db.from('validations').upsert({
     project_id: CURRENT_PROJECT_ID,
     new_code: newCode, status,
     comment: comment || null,
@@ -4916,55 +4928,60 @@ async function syncValidation(newCode, status, comment, validatedOldCode) {
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,new_code' });
+  if (error) console.error('[Sync] syncValidation:', error); else markSaved();
 }
 
 /** Sauvegarde un override de mots-clés */
 async function syncKwOverride(resourceCode, keywords) {
   if (!CURRENT_PROJECT_ID) return;
   if (!keywords || keywords.length === 0) {
-    await db.from('kw_overrides')
+    const { error } = await db.from('kw_overrides')
       .delete()
       .eq('project_id', CURRENT_PROJECT_ID)
       .eq('resource_code', resourceCode);
+    if (error) console.error('[Sync] syncKwOverride (delete):', error); else markSaved();
     return;
   }
-  await db.from('kw_overrides').upsert({
+  const { error } = await db.from('kw_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     keywords: keywords,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code' });
+  if (error) console.error('[Sync] syncKwOverride:', error); else markSaved();
 }
 
 /** Sauvegarde un override de famille */
 async function syncFamilyOverride(resourceCode, family) {
   if (!CURRENT_PROJECT_ID) return;
-  await db.from('family_overrides').upsert({
+  const { error } = await db.from('family_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     family,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code' });
+  if (error) console.error('[Sync] syncFamilyOverride:', error); else markSaved();
 }
 
 /** Sauvegarde un override de type */
 async function syncTypeOverride(resourceCode, isTransversal) {
   if (!CURRENT_PROJECT_ID) return;
-  await db.from('type_overrides').upsert({
+  const { error } = await db.from('type_overrides').upsert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     is_transversal: isTransversal,
     updated_at: new Date().toISOString(),
     updated_by: CURRENT_USER.id
   }, { onConflict: 'project_id,resource_code' });
+  if (error) console.error('[Sync] syncTypeOverride:', error); else markSaved();
 }
 
 /** Enregistre une entrée dans l'historique */
 async function syncHistory(resourceCode, actionType, description, details) {
   if (!CURRENT_PROJECT_ID) return;
-  await db.from('history').insert({
+  const { error } = await db.from('history').insert({
     project_id: CURRENT_PROJECT_ID,
     resource_code: resourceCode,
     action_type: actionType,
@@ -4973,6 +4990,7 @@ async function syncHistory(resourceCode, actionType, description, details) {
     created_by: CURRENT_USER.id,
     user_email: CURRENT_USER.email
   });
+  if (error) console.error('[Sync] syncHistory:', error); else markSaved();
 }
 
 // ── Realtime : écoute des changements des collègues ───────────────────────────
@@ -5330,6 +5348,7 @@ function renderUserBadge(user) {
     <span id="project-badge" style="display:none;background:rgba(255,255,255,.2);color:#fff;
       font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;white-space:nowrap"></span>
     <span id="sync-indicator" style="font-size:11px;color:rgba(255,255,255,.8);white-space:nowrap"></span>
+    <span id="last-save-indicator" style="font-size:11px;color:rgba(255,255,255,.65);white-space:nowrap"></span>
     <div id="user-badge" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);
       padding:4px 10px;border-radius:20px;font-size:12px;color:#fff;cursor:default" title="${user.email}">
       <span>👤</span>
