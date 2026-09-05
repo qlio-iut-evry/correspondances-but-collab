@@ -34,8 +34,15 @@
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:#1e293b;font-size:14px;line-height:1.5}
 /* HEADER */
 .hdr{background:var(--P);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;box-shadow:0 3px 10px rgba(0,0,0,.3)}
-.hdr-title{font-size:17px;font-weight:700;letter-spacing:.3px}
-.hdr-sub{font-size:12px;opacity:.75;flex:1}
+/* R54: sur un écran étroit, le bloc titre (flex:1;min-width:0 côté parent)
+   se réduisait en largeur au lieu de laisser les boutons de la barre
+   d'outils passer à la ligne suivante — le texte, sans limite de largeur
+   propre, retombait alors en un mot par ligne et le bandeau prenait une
+   hauteur démesurée. Troncature avec "…" à la place : le bandeau garde une
+   hauteur normale quelle que soit la largeur d'écran. */
+.hdr-title{font-size:17px;font-weight:700;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-sub{font-size:12px;opacity:.75;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hdr-sub>div{overflow:hidden;text-overflow:ellipsis}
 .hdr-btn{padding:5px 12px;border-radius:5px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;cursor:pointer;font-size:12px;font-weight:500}
 .hdr-btn:hover{background:rgba(255,255,255,.22)}
 /* PARCOURS SELECTOR */
