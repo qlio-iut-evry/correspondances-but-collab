@@ -2676,7 +2676,11 @@ function renderKw(){
 function renderSynthese(){
   if(!S.loaded) return;
   const ap=getActiveParcours();
-  const matchedOld=new Set(Object.values(S.matching).map(m=>m.oldCode));
+  // R38: une ancienne ressource utilisée comme "extra" (partage exceptionnel
+  // secondaire, S.extras) est réellement affectée, même si elle n'est
+  // "principale" nulle part — sans ça, cette liste continue de la présenter
+  // comme non affectée après une association manuelle multiple.
+  const matchedOld=new Set([...Object.values(S.matching).map(m=>m.oldCode), ...Object.values(S.extras||{}).flat()]);
   const scores=Object.values(S.matching).map(m=>m.score||0);
   const avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
   const forte=scores.filter(s=>s>=55).length, moy=scores.filter(s=>s>=35&&s<55).length;
@@ -4834,7 +4838,10 @@ function renderCorrEnhanced(){
   }
 
   // Zone "sans correspondance" — toujours calculée sur TOUS les semestres (ignore filtre semestre)
-  const matchedOld=new Set(Object.values(S.matching).map(m=>m.oldCode));
+  // R38: inclure les codes utilisés comme "extras" (cf. renderSynthese) —
+  // sinon une ancienne ressource associée en secondaire à une nouvelle
+  // ressource reste listée ici comme "non affectée".
+  const matchedOld=new Set([...Object.values(S.matching).map(m=>m.oldCode), ...Object.values(S.extras||{}).flat()]);
   const ap2=getActiveParcours();
   const unmatchedAll=S.old.filter(r=>{
     if(matchedOld.has(r.code)) return false;
