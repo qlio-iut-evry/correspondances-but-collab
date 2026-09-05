@@ -4417,7 +4417,12 @@ function renderCorrEnhanced(){
     // ANCIENNES ressources inutilisées, pas les nouvelles.
     if(!S.matching[rN.code]){
       if(fam && resourceFamily(rN)!==fam) return;
-      const isTransv=isTransversalRes(rN);
+      // R26: une ressource sans correspondance n'a pas de scoreRow, donc pas
+      // d'accès à isDisplayedTransversal() — sans ce garde-fou, un override
+      // manuel de type (setResourceType) était ignoré et le badge retombait
+      // toujours sur la règle de position automatique.
+      const typeOverride=S.typeOverrides[ovKey('new',rN.code)];
+      const isTransv=typeOverride?typeOverride==='transversal':isTransversalRes(rN);
       if(transv==='oui' && !isTransv) return;
       if(transv==='non' && isTransv) return;
       if(valFil && valFil!=='aucune') return;
