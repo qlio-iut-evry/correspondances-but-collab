@@ -28,8 +28,10 @@ sa logique métier d'origine**.
 
 ## 3. Stack technique exacte
 
-- **Aucun framework, aucun build tool, aucun `package.json`.** HTML/CSS/JS
-  vanilla à 99,4 % (statistique GitHub), pas de transpilation, pas de bundler.
+- **Aucun framework, aucun bundler/transpileur, aucun `package.json`.**
+  HTML/CSS/JS vanilla à 99,4 % (statistique GitHub). Seule exception :
+  `build.js`, un script Node autonome (aucune dépendance) qui réinjecte
+  `supabase-sync.js` dans `index.html` — voir §4.
 - **Frontend** : une seule page applicative `index.html`, servie statiquement.
 - **Auth** : Supabase Auth (email/mot de passe + lien magique OTP), via le SDK
   officiel `@supabase/supabase-js@2` :
@@ -55,17 +57,32 @@ correspondances-but-collab/
 ├── README.md            Guide d'installation pas-à-pas (Supabase, déploiement)
 ├── auth.html             Page de connexion / inscription (email+mdp, magic link)
 ├── index.html            Appli principale — bundle auto-suffisant (app + SDK + sync)
+├── build.js               Réinjecte supabase-sync.js dans index.html (voir ci-dessous)
 ├── supabase-sync.js       Source éditable de la couche de synchro (voir §3)
 ├── supabase.min.js        Source éditable du SDK Supabase bundlé dans index.html
 └── sql/
     └── schema.sql         Schéma Postgres complet (tables, RLS, policies, Realtime)
 ```
 
-Il n'y a **pas de script de build** dans ce repo (contrairement au projet
-parent qui a `generate_app.py`) : `supabase-sync.js` et `supabase.min.js` sont
-les sources de référence, mais rien n'automatise leur recopie dans
-`index.html` — la synchronisation entre les deux est actuellement **manuelle**.
-C'est un point de fragilité à garder en tête (voir §6).
+`supabase-sync.js` et `supabase.min.js` sont les sources de référence de deux
+zones recopiées telles quelles dans `index.html`. Pour `supabase-sync.js`,
+cette recopie est automatisée par **`build.js`** (script Node autonome, sans
+dépendance ni `package.json`) :
+
+```
+node build.js          régénère index.html à partir de supabase-sync.js (no-op si déjà à jour)
+node build.js --check   ne modifie rien ; sort en erreur (code 1) si les deux ont divergé
+```
+
+**Toute modification de `supabase-sync.js` doit être suivie de `node build.js`**
+avant de committer — `--check` peut être lancé avant un commit pour s'en
+assurer. Le script repère la zone à remplacer dans `index.html` via deux
+marqueurs stables (le commentaire d'en-tête `supabase-sync.js` et le
+commentaire `// ── NE PAS auto-init ici`) ; s'il ne les trouve pas, il
+s'arrête sans rien écrire plutôt que de deviner.
+
+`supabase.min.js` (SDK Supabase, ne change quasiment jamais) n'a pas ce
+garde-fou et reste recopié à la main — voir §6.
 
 ## 5. Conventions de nommage
 
@@ -102,10 +119,12 @@ C'est un point de fragilité à garder en tête (voir §6).
   (sécurité déléguée aux policies RLS), donc pas un secret à retirer — mais
   **ne jamais y substituer une `service_role` key**, et ne changer ces valeurs
   que si le projet Supabase change réellement.
-- **`index.html`** : fichier bundle, ne pas éditer une section (app / SDK /
-  sync) sans reporter le même changement dans sa source correspondante
-  (`supabase-sync.js` ou `supabase.min.js`), sous peine de divergence
-  silencieuse entre la source « propre » et le bundle réellement déployé.
+- **`index.html`** : fichier bundle. Ne jamais éditer directement la zone
+  recopiée de `supabase-sync.js` (repérable par son commentaire d'en-tête) —
+  éditer `supabase-sync.js` puis lancer `node build.js` (voir §4), sous peine
+  de voir le prochain build écraser l'édition directe. Pour la zone SDK
+  Supabase (`supabase.min.js`), toujours manuelle : reporter le changement à
+  la main des deux côtés, sous peine de divergence silencieuse.
 - **RLS policies** (`auth_full_access` sur chaque table) : actuellement
   « tout utilisateur authentifié peut tout lire/écrire » (équipe de confiance,
   pas de permissions fines). Ne pas durcir sans validation — casserait le
