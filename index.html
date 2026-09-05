@@ -1645,9 +1645,19 @@ function resourceFamily(r){
   // Transversales : Langue & Communication | Développement personnel | Gestion & Entreprise | Numérique & Mathématiques
   // Métier        : Production & Flux | Qualité & Amélioration
   if(!r) return '';
+  const hasFamOverride = !!S.familyOverrides[ovKey(r.side,r.code)];
   const f = S.familyOverrides[ovKey(r.side,r.code)] || r.family || '';
   const isT = isTransversalRes(r);
   const titre = (r.titre||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+
+  // R36: nouvelle famille "Transformation digitale" \u2014 passthrough si d\u00e9j\u00e0
+  // choisie manuellement (m\u00eame logique que R25 pour Gestion & Entreprise),
+  // puis d\u00e9tection automatique pour toute ressource du parcours MTD sans
+  // override de famille. V\u00e9rifi\u00e9 AVANT les mappages de valeurs brutes
+  // ci-dessous : sinon une ressource MTD dont le champ brut matche d\u00e9j\u00e0 une
+  // autre famille (ex. "Numerique & SI") ne serait jamais reclass\u00e9e ici.
+  if(f==='Transformation digitale') return 'Transformation digitale';
+  if(!hasFamOverride && r.parcours_code==='MTD') return 'Transformation digitale';
 
   // --- Mappages depuis les valeurs PDF existantes ---
   if(f==='Langues & Communication'||f==='Langue & Communication') return 'Langue & Communication';
@@ -3426,7 +3436,7 @@ function onFile(e,side){const f=e.target.files[0];if(f)processFile(f,side);}
 function dzEnter(el){el.classList.add('over');}
 function dzLeave(el){el.classList.remove('over');}
 function setFileSt(side,type,msg){const el=document.getElementById(`st-${side}-file`);if(!el)return;const clearBtn=type==='ok'?`<button onclick="clearSide('${side}')" style="margin-left:8px;background:none;border:none;cursor:pointer;color:#dc2626;font-size:13px;font-weight:700" title="Supprimer ce programme">✕</button>`:'';el.innerHTML=`<div class="status status-${type}" style="display:flex;align-items:center;justify-content:space-between">${eH(msg)}${clearBtn}</div>`;}
-const PRE_FAMILIES=['Langue & Communication','Numérique & Mathématiques','Gestion & Entreprise','Développement personnel','Production & Logistique','Qualite'];
+const PRE_FAMILIES=['Langue & Communication','Numérique & Mathématiques','Gestion & Entreprise','Développement personnel','Production & Logistique','Qualite','Transformation digitale'];
 function showPreCompute(){
   const panel=document.getElementById('pre-compute-panel');
   if(!panel) return;
@@ -4178,7 +4188,7 @@ function renderCorrDetail(newCode){
 }
 
 // 6 familles fixes
-const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration'];
+const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration','Transformation digitale'];
 
 // R23: typeButtons/famButtons/kwEditor/competenceEditor sont partagés entre le
 // panneau latéral (renderCorrDetail) et la modale d'édition rapide
