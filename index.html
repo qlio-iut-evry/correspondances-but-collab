@@ -96,6 +96,14 @@ tr:hover td{background:#f8fafc}
 .path-imp{background:#f0fdf4;color:#14532d;border:1px solid #bbf7d0}
 /* FAMILY BADGES */
 .fam{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:600;background:#f1f5f9;color:#475569;white-space:nowrap}
+/* R53: sur chaque ligne du tableau, cliquer la ligne ouvre le panneau de
+   détail mais cliquer précisément le code/titre d'une ressource ouvre une
+   modale d'édition différente — jusqu'ici rien ne distinguait visuellement
+   les deux zones (même curseur partout), rendant la modale d'édition
+   difficile à découvrir. Le titre se souligne au survol, comme un lien,
+   pour signaler que ce texte précis a un comportement à part. */
+.res-edit-title{text-decoration-color:transparent;transition:text-decoration-color .1s}
+.res-edit-title:hover{text-decoration:underline;text-decoration-color:currentColor}
 /* PILLS */
 .pill{display:inline-block;padding:1px 6px;border-radius:8px;font-size:10px;background:#e0e7ff;color:#3730a3;margin:1px}
 .pill-tool{background:#fed7aa;color:#9a3412}
@@ -2176,7 +2184,14 @@ function restoreState(){
   } catch(e){ console.warn('restoreState error:',e); }
 }
 function clearSavedState(){
-  if(!confirm('Effacer toutes les données sauvegardées (validations, remplacements, familles) ?')) return;
+  // R52: le texte de confirmation sous-estimait ce que cette action détruit
+  // réellement (ne citait que "validations, remplacements, familles") alors
+  // que le code efface aussi les mots-clés modifiés, les compétences
+  // ciblées modifiées, les types forcés, les ressources en partage
+  // exceptionnel (extras) ET tout l'historique — sur une action
+  // irréversible, c'est justement le pire endroit pour une liste
+  // incomplète. Message aligné sur la portée réelle ci-dessous.
+  if(!confirm("Réinitialisation complète : effacer TOUTES les données de ce projet — validations, remplacements, ressources en partage exceptionnel, familles, types, mots-clés, compétences ciblées ET tout l'historique ?\nCette action est irréversible.")) return;
   localStorage.removeItem(STORAGE_KEY);
   S.validations={}; S.overrides={}; S.extras={}; S.familyOverrides={}; S.typeOverrides={}; S.kwOverrides={}; S.competenceOverrides={}; S.history=[];
   // R14: la réassignation brute ci-dessus remplace les Proxy de synchro par de
@@ -2185,7 +2200,11 @@ function clearSavedState(){
   // du projet).
   if(typeof installSyncProxies==='function') installSyncProxies();
   if(typeof clearProjectTables==='function'){
-    clearProjectTables(['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides','extras']).catch(console.error);
+    // R52: 'history' manquait ici — le tableau local S.history était bien
+    // vidé pour l'affichage immédiat, mais les lignes restaient en base et
+    // revenaient silencieusement au prochain chargement du projet, rendant
+    // fausse la promesse "et tout l'historique" du message ci-dessus.
+    clearProjectTables(['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides','extras','history']).catch(console.error);
   }
   recomputeMatching(); updateStats(); renderCorr();
 }
@@ -5264,7 +5283,7 @@ function renderCorrEnhanced(){
       const msgBorder=toCreate?'#f59e0b':'#f97316';
       const msgText=toCreate?'🆕 Ressource à créer — aucun équivalent dans l\'ancien programme':'⚠️ Aucune ressource ancienne affectée — cliquez pour associer';
       return `<tr class="corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer;background:${msgBg};border-left:3px solid ${msgBorder}" onclick="openReplace('${eA(rN.code)}')">
-        <td style="cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
+        <td style="cursor:pointer" title="Cliquer pour modifier le type, la famille, les mots-clés ou les compétences de cette ressource" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span class="res-edit-title" style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
         <td style="text-align:center;font-weight:700">${rN.semestre}</td>
         <td colspan="5" style="color:${msgColor};font-weight:700;font-size:12px">${msgText}</td>
         <td onclick="event.stopPropagation()"><div class="val-btn-wrap">
@@ -5300,11 +5319,11 @@ function renderCorrEnhanced(){
       const oTransv=S.typeOverrides[ovKey('old',code)]?S.typeOverrides[ovKey('old',code)]==='transversal':isTransversalRes(er);
       const oBadge=oTransv?'<span style="font-size:10px;color:#0891b2">Transversale</span> ':'<span style="font-size:10px;color:#7c3aed">Métier</span> ';
       const oFam=`<span class="fam">${eH(resourceFamily(er))}</span>`;
-      return`<div style="${borderStyle}cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('old','${eA(code)}')"><span class="code" style="cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(er.code)}</span> ${oBadge}${oFam}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH((er.titre||'').slice(0,45))}</span></div>`;
+      return`<div style="${borderStyle}cursor:pointer" title="Cliquer pour modifier le type, la famille, les mots-clés ou les compétences de cette ressource" onclick="event.stopPropagation();openResourceEditModal('old','${eA(code)}')"><span class="code" style="cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(er.code)}</span> ${oBadge}${oFam}<br><span class="res-edit-title" style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH((er.titre||'').slice(0,45))}</span></div>`;
     };
     const oldCellHtml=mkOldEntry(rO.code,true)+extCodes2.map(ec=>mkOldEntry(ec,false)).join('');
     return `<tr class="tr-${lvl} corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer" onclick="selectCorrRow('${eA(rN.code)}',false)">
-      <td style="cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.titre.slice(0,45))}</span></td>
+      <td style="cursor:pointer" title="Cliquer pour modifier le type, la famille, les mots-clés ou les compétences de cette ressource" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span class="res-edit-title" style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.titre.slice(0,45))}</span></td>
       <td style="text-align:center;font-weight:700">${rN.semestre}</td>
       <td>${oldCellHtml}${altHtml}</td>
       <td style="text-align:center;font-weight:700">${rO.semestre}</td>
