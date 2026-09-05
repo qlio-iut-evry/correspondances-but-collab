@@ -2181,9 +2181,8 @@ function renderCorr(){
       <td>${commonHtml||'<span class="hint">—</span>'}</td>
       <td>${valBadge}${val.comment?`<div style="font-size:10px;color:#64748b">${eH(val.comment.slice(0,25))}</div>`:''}</td>
       <td onclick="event.stopPropagation()"><div class="val-btn-wrap">
-        <button class="btn-icon" title="Valider" onclick="doValidate('${eA(rN.code)}','valide')">✅</button>
-        <button class="btn-icon" title="À revoir" onclick="doValidate('${eA(rN.code)}','revoir')">🔄</button>
-        <button class="btn-icon" title="Refuser" onclick="doValidate('${eA(rN.code)}','refuse')">❌</button>
+        <button class="btn-icon" title="Valider / dévalider" onclick="doValidate('${eA(rN.code)}','valide')">✅</button>
+        <button class="btn-icon" title="Refuser cette correspondance (à réaffecter)" onclick="refuseCorrespondence('${eA(rN.code)}')">❌</button>
         <button class="btn-icon" title="Comparer en détail" onclick="openCompare('${eA(rO.code)}','${eA(rN.code)}')">🔬</button>
       </div></td>
     </tr>`;
@@ -2718,12 +2717,36 @@ function resetValidations(){
   addHist('ALL','reset','Toutes les validations réinitialisées');
   updateStats(); renderCorr();
 }
+// R30: Valider bascule désormais (second clic = dévalider) plutôt que de
+// n'être qu'un aller simple — la dévalidation retire juste le badge, sans
+// toucher à l'affectation elle-même (restée figée comme choix manuel si
+// elle l'était déjà ; à changer soi-même via ✎ si besoin).
 function doValidate(code, status){
+  if(status==='valide' && S.validations[code]?.status==='valide'){
+    delete S.validations[code];
+    addHist(code,'devalide','Validation retirée');
+    updateStats(); renderCorr();
+    return;
+  }
   const currentOld = S.matching[code]?.oldCode || null;
   S.validations[code]={status,comment:'',ts:new Date().toISOString(),validatedOldCode:status==='valide'?currentOld:null};
   if(status==='valide' && currentOld) S.overrides[code]=currentOld;
   addHist(code,status,'');
   updateStats(); renderCorr();
+}
+
+// R30: Refuser une correspondance la supprime réellement (au lieu de ne
+// poser qu'un badge cosmétique comme avant) — la ressource redevient une
+// ligne "sans correspondance", protégée du recalcul automatique jusqu'à ce
+// qu'on la réaffecte manuellement (✎) ou qu'on lève ce refus via le bouton
+// "↺ Revenir au calcul automatique" de la modale d'association.
+function refuseCorrespondence(code){
+  saveSnapshot();
+  delete S.validations[code];
+  S.overrides[code]=null;
+  if(S.extras) delete S.extras[code];
+  addHist(code,'modifie','Correspondance refusée — à réaffecter');
+  recomputeMatching(); updateStats(); renderCorr();
 }
 
 function setResourceType(code, type, side){
@@ -2848,7 +2871,6 @@ function renderReplaceList(){
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-left:auto">
       ${(newCode in S.overrides)?'<button class="btn btn-outline btn-sm" onclick="resetReplaceTarget()" style="color:#0891b2;border-color:#67e8f9;white-space:nowrap">↺ Revenir au calcul automatique</button>':''}
       <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a;white-space:nowrap">🆕 À créer — aucun équivalent</button>
-      <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" title="Refus définitif : cette ressource ne sera plus jamais proposée par le calcul automatique, sauf si vous cliquez ensuite sur « Revenir au calcul automatique »." style="color:#dc2626;border-color:#fca5a5;white-space:nowrap">🗑 Refuser toute correspondance</button>
     </div>
   </div>
   <div style="max-height:380px;overflow-y:auto">`;
@@ -2873,11 +2895,6 @@ function renderReplaceList(){
   });
   html+='</div>';
   document.getElementById('modal-replace-body').innerHTML=html;
-}
-
-function clearReplaceTarget(){
-  document.querySelectorAll('#modal-replace-body input[type=checkbox]:checked').forEach(cb=>{cb.checked=false;});
-  confirmReplace();
 }
 
 // R29: retire l'override manuel de la ressource ciblée (refus explicite
@@ -2981,8 +2998,8 @@ function applyReplace(nc, checked, conflicts, mode){
     // (nc), pas suite à une décision prise sur "other" elle-même — retirer
     // l'override (et non le mettre à null) pour qu'elle redevienne éligible
     // au prochain ⚡ Calculer. Un null explicite reste réservé au cas où
-    // VOUS cliquez "Aucune correspondance — laisser vide" sur la ressource
-    // elle-même (bouton clearReplaceTarget/applyReplace ci-dessous), qui
+    // VOUS refusez délibérément CETTE ressource (bouton × du tableau,
+    // refuseCorrespondence, ou modale d'association sans rien cocher), qui
     // reste protégé d'un recalcul global tant que vous ne le levez pas via
     // "↺ Revenir au calcul automatique".
     delete S.overrides[other];
@@ -3838,8 +3855,8 @@ function openTransitionPlan(newCode){
       <div class="detail-score" style="font-size:34px">${focus.score.toFixed(1)}%</div>
       <div style="margin-top:6px">${scoreBadge(focus.score)}</div>
       <div class="transition-actions" style="justify-content:flex-end">
-        <button class="btn btn-green" onclick="doValidate('${eA(focus.rN.code)}','valide');openTransitionPlan('${eA(focus.rN.code)}')">Valider</button>
-        <button class="btn btn-outline" onclick="doValidate('${eA(focus.rN.code)}','revoir');openTransitionPlan('${eA(focus.rN.code)}')">À revoir</button>
+        <button class="btn btn-green" onclick="doValidate('${eA(focus.rN.code)}','valide');openTransitionPlan('${eA(focus.rN.code)}')">Valider / dévalider</button>
+        <button class="btn btn-outline" onclick="refuseCorrespondence('${eA(focus.rN.code)}');openTransitionPlan('${eA(focus.rN.code)}')">Refuser</button>
         <button class="btn btn-outline" onclick="openCompare('${eA(focus.rO.code)}','${eA(focus.rN.code)}')">Comparer</button>
         <button class="btn btn-outline" onclick="openReplace('${eA(focus.rN.code)}')">Remplacer</button>
       </div>
@@ -3868,9 +3885,8 @@ function openTransitionPlan(newCode){
       <div class="transition-note">${eH(transitionDecisionText(item))}</div>
       ${altHtmlForCard(item.rN.code, item.rO.code)}
       <div class="transition-actions">
-        <button class="btn-icon" title="Valider" onclick="event.stopPropagation();doValidate('${eA(item.rN.code)}','valide');openTransitionPlan('${eA(item.rN.code)}')">✓</button>
-        <button class="btn-icon" title="À revoir" onclick="event.stopPropagation();doValidate('${eA(item.rN.code)}','revoir');openTransitionPlan('${eA(item.rN.code)}')">↻</button>
-        <button class="btn-icon" title="Refuser" onclick="event.stopPropagation();doValidate('${eA(item.rN.code)}','refuse');openTransitionPlan('${eA(item.rN.code)}')">×</button>
+        <button class="btn-icon" title="Valider / dévalider" onclick="event.stopPropagation();doValidate('${eA(item.rN.code)}','valide');openTransitionPlan('${eA(item.rN.code)}')">✓</button>
+        <button class="btn-icon" title="Refuser cette correspondance (à réaffecter)" onclick="event.stopPropagation();refuseCorrespondence('${eA(item.rN.code)}');openTransitionPlan('${eA(item.rN.code)}')">×</button>
         <button class="btn-icon" title="Comparer" onclick="event.stopPropagation();openCompare('${eA(item.rO.code)}','${eA(item.rN.code)}')">🔬</button>
         <button class="btn-icon" title="Remplacer" onclick="event.stopPropagation();openReplace('${eA(item.rN.code)}')">✎</button>
       </div>
@@ -4006,9 +4022,8 @@ function renderCorrDetail(newCode){
         +(v.status?'<span class="val-badge val-'+v.status+'">'+eH(v.status)+'</span>':'')
       +'</div>'
       +'<div style="display:flex;gap:5px;margin-top:8px">'
-        +valBtn('valide','✅ Valider','background:#16a34a;color:#fff;border:none;')
-        +valBtn('revoir','🔄 À revoir','background:#1d4ed8;color:#fff;border:none;')
-        +valBtn('refuse','❌ Refuser','background:#dc2626;color:#fff;border:none;')
+        +valBtn('valide','✅ Valider / dévalider','background:#16a34a;color:#fff;border:none;')
+        +'<button class="btn btn-sm" style="border:1px solid #cbd5e1;background:#fff;color:#475569;padding:5px 10px;" onclick="refuseCorrespondence(\''+eA(newCode)+'\');renderCorrDetail(\''+eA(newCode)+'\')">❌ Refuser</button>'
       +'</div>'
     +'</div>'
     +'<div class="detail-section">'
@@ -4611,9 +4626,8 @@ function renderCorrEnhanced(){
       <td>${commonHtml||'<span class="hint">—</span>'}</td>
       <td>${valBadge}${val.comment?`<div style="font-size:10px;color:#64748b">${eH(val.comment.slice(0,25))}</div>`:''}</td>
       <td><div class="val-btn-wrap">
-        <button class="btn-icon" title="Valider" onclick="event.stopPropagation();doValidate('${eA(rN.code)}','valide');renderCorrDetail('${eA(rN.code)}')">✓</button>
-        <button class="btn-icon" title="À revoir" onclick="event.stopPropagation();doValidate('${eA(rN.code)}','revoir');renderCorrDetail('${eA(rN.code)}')">↻</button>
-        <button class="btn-icon" title="Refuser" onclick="event.stopPropagation();doValidate('${eA(rN.code)}','refuse');renderCorrDetail('${eA(rN.code)}')">×</button>
+        <button class="btn-icon" title="Valider / dévalider" onclick="event.stopPropagation();doValidate('${eA(rN.code)}','valide');renderCorrDetail('${eA(rN.code)}')">✓</button>
+        <button class="btn-icon" title="Refuser cette correspondance (à réaffecter)" onclick="event.stopPropagation();refuseCorrespondence('${eA(rN.code)}')">×</button>
         <button class="btn-icon" title="Comparer en détail" onclick="event.stopPropagation();openCompare('${eA(rO.code)}','${eA(rN.code)}')">🔬</button>
         <button class="btn-icon" title="Remplacer la ressource proposée" onclick="event.stopPropagation();openReplace('${eA(rN.code)}')">✎</button>
       </div></td>
