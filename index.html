@@ -440,6 +440,8 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
 <div id="tab-correspondances" class="content">
   <div class="sticky">
     <div class="filter-bar">
+      <span class="filter-label">Recherche</span>
+      <input id="f-search" type="text" placeholder="Code ou titre…" oninput="renderCorr()" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:150px">
       <span class="filter-label">Semestre</span>
       <select id="f-sem" onchange="renderCorr()"><option value="">Tous</option></select>
       <span class="filter-label">Famille</span>
@@ -459,6 +461,7 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
         <option value="revoir">À revoir</option><option value="refuse">Refusées</option><option value="aucune">Non traitées</option>
       </select>
       <button class="btn btn-primary" onclick="renderCorr()">🔄 Actualiser</button>
+      <button class="btn btn-outline" onclick="resetCorrFilters()" title="Remettre tous les filtres à leur valeur par défaut">✕ Filtres</button>
     </div>
   </div>
   <div id="corr-stats" class="card" style="padding:8px 14px;font-size:12px"></div>
@@ -580,6 +583,8 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
 <div id="tab-audit" class="content" style="display:none">
   <div class="sticky">
     <div class="filter-bar">
+      <span class="filter-label">Recherche</span>
+      <input id="audit-search" type="text" placeholder="Code ou titre…" oninput="renderAudit()" style="padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px;min-width:150px">
       <span class="filter-label">Programme</span>
       <select id="audit-prog" onchange="renderAudit()">
         <option value="">Les deux</option>
@@ -596,6 +601,7 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
       </select>
       <span class="filter-label">Famille</span>
       <select id="audit-fam" onchange="renderAudit()"><option value="">Toutes</option></select>
+      <button class="btn btn-outline" onclick="resetAuditFilters()" title="Remettre tous les filtres à leur valeur par défaut">✕ Filtres</button>
       <span class="hint" style="margin-left:auto"><span id="audit-count">0</span> ressource(s)</span>
     </div>
   </div>
@@ -3047,14 +3053,28 @@ function setResourceFamily(code, family, side){
 function openReplace(newCode){
   const rN=S.new.find(r=>r.code===newCode); if(!rN) return;
   S.replaceTarget=newCode;
-  S.replaceUI={sem:'',type:'',assigned:''};
+  S.replaceUI={sem:'',type:'',assigned:'',search:''};
   renderReplaceList();
   openModal('modal-replace');
 }
 
+// R60: même besoin que resetCorrFilters()/resetAuditFilters() — 4 filtres
+// possibles dans cette modale (recherche, semestre, type, disponibilité).
+function resetReplaceFilters(){
+  S.replaceUI={sem:'',type:'',assigned:'',search:''};
+  renderReplaceList();
+}
 function setReplaceFilter(key,val){
   S.replaceUI[key]=val;
   renderReplaceList();
+  // R60: renderReplaceList() remplace tout le innerHTML de la modale (y
+  // compris le champ recherche lui-même) à chaque frappe — sans ceci, le
+  // focus se perdrait après chaque caractère tapé, rendant la recherche
+  // inutilisable au-delà d'une seule lettre.
+  if(key==='search'){
+    const input=document.getElementById('replace-search');
+    if(input){ input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }
 }
 
 // R10: marqueur spécial stocké dans S.overrides[code] pour signaler qu'une
@@ -3085,7 +3105,7 @@ function findOldResourceUsage(oldCode,excludeNewCode){
 function renderReplaceList(){
   const newCode=S.replaceTarget;
   const rN=S.new.find(r=>r.code===newCode); if(!rN) return;
-  const ui=S.replaceUI||{sem:'',type:'',assigned:''};
+  const ui=S.replaceUI||{sem:'',type:'',assigned:'',search:''};
   const currentPrimary=S.matching[newCode]?.oldCode;
   const currentExtras=S.extras?.[newCode]||[];
 
@@ -3098,6 +3118,7 @@ function renderReplaceList(){
     return {r,sc:row?adjScore(row):0};
   }).sort((a,b)=>b.sc-a.sc);
 
+  if(ui.search){ const q=searchNormalize(ui.search); opts=opts.filter(({r})=>searchNormalize(r.code+' '+r.titre).includes(q)); }
   if(ui.sem) opts=opts.filter(({r})=>String(r.semestre)===String(ui.sem));
   if(ui.type==='transversale') opts=opts.filter(({r})=>isTransversalRes(r));
   if(ui.type==='metier') opts=opts.filter(({r})=>!isTransversalRes(r));
@@ -3110,6 +3131,7 @@ function renderReplaceList(){
   <p style="font-size:11px;color:#64748b;margin-bottom:10px">Cochez une ou plusieurs ressources. La première cochée devient la correspondance principale.</p>
   ${isToCreate(newCode)?'<p style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;margin-bottom:10px">🆕 Actuellement marquée « à créer » — cocher une ressource ci-dessous remplacera ce marquage.</p>':''}
   <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;padding:8px 10px;background:#f8fafc;border-radius:8px">
+    <input id="replace-search" type="text" placeholder="Code ou titre…" value="${eA(ui.search||'')}" oninput="setReplaceFilter('search',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px;min-width:140px">
     <select onchange="setReplaceFilter('sem',this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:5px">
       <option value=""${ui.sem?'':' selected'}>Tous semestres</option>
       ${semOptions.map(s=>`<option value="${eA(s)}"${String(ui.sem)===String(s)?' selected':''}>Semestre ${eH(s)}</option>`).join('')}
@@ -3124,6 +3146,7 @@ function renderReplaceList(){
       <option value="libres"${ui.assigned==='libres'?' selected':''}>Libres seulement</option>
       <option value="affectees"${ui.assigned==='affectees'?' selected':''}>Déjà affectées seulement</option>
     </select>
+    <button class="btn btn-outline btn-sm" onclick="resetReplaceFilters()" title="Remettre tous les filtres à leur valeur par défaut">✕ Filtres</button>
     <div style="display:flex;flex-wrap:wrap;gap:8px;margin-left:auto">
       ${(newCode in S.overrides)?'<button class="btn btn-outline btn-sm" onclick="resetReplaceTarget()" style="color:#0891b2;border-color:#67e8f9;white-space:nowrap">↺ Revenir au calcul automatique</button>':''}
       <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a;white-space:nowrap">🆕 À créer — aucun équivalent</button>
@@ -4359,6 +4382,16 @@ function showTab(id){
 // type et famille s'éditent inline (menu déroulant, pas de modale) ; les
 // compétences, une LISTE de textes libres qui ne tient pas dans un simple
 // menu déroulant, s'éditent via la modale déjà utilisée partout ailleurs.
+// R60: même besoin que resetCorrFilters() sur le tableau principal — 5
+// filtres possibles sur cette vue, aucun moyen de tout remettre à zéro.
+function resetAuditFilters(){
+  const search=document.getElementById('audit-search'); if(search) search.value='';
+  const prog=document.getElementById('audit-prog'); if(prog) prog.value='';
+  const sem=document.getElementById('audit-sem'); if(sem) sem.value='';
+  const type=document.getElementById('audit-type'); if(type) type.value='';
+  const fam=document.getElementById('audit-fam'); if(fam) fam.value='';
+  renderAudit();
+}
 function renderAudit(){
   if(!S.loaded) return;
   const semSel=document.getElementById('audit-sem');
@@ -4373,6 +4406,7 @@ function renderAudit(){
     famSel.dataset.built='1';
   }
 
+  const search=searchNormalize(document.getElementById('audit-search')?.value||'').trim();
   const prog=document.getElementById('audit-prog')?.value||'';
   const semFil=document.getElementById('audit-sem')?.value||'';
   const typeFil=document.getElementById('audit-type')?.value||'';
@@ -4388,6 +4422,7 @@ function renderAudit(){
     return {r,side,isT,fam:resourceFamily(r)};
   });
 
+  if(search) items=items.filter(x=>searchNormalize(x.r.code+' '+x.r.titre).includes(search));
   if(semFil) items=items.filter(x=>String(x.r.semestre)===String(semFil));
   if(typeFil) items=items.filter(x=>(typeFil==='transversal')===x.isT);
   if(famFil) items=items.filter(x=>x.fam===famFil);
@@ -5236,8 +5271,28 @@ function renderKwEnhanced(){
 }
 
 
+// R59: recherche texte libre, accent/casse-insensible — recherche par simple
+// inclusion de sous-chaîne (pas de tokenisation) pour qu'un code exact type
+// "R3.05" reste cherchable tel quel. Réutilisée par les 3 endroits qui en
+// manquaient (tableau principal, Contrôle ressources, modale Remplacer).
+function searchNormalize(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+}
+// R60: jusqu'à 6 filtres actifs en même temps sur ce tableau, aucun moyen
+// de tout remettre à zéro d'un coup — il fallait repasser chaque menu un
+// par un.
+function resetCorrFilters(){
+  const search=document.getElementById('f-search'); if(search) search.value='';
+  const sem=document.getElementById('f-sem'); if(sem) sem.value='';
+  const fam=document.getElementById('f-fam'); if(fam) fam.value='';
+  const score=document.getElementById('f-score'); if(score) score.value='0';
+  const transv=document.getElementById('f-transv'); if(transv) transv.value='';
+  const val=document.getElementById('f-val'); if(val) val.value='';
+  renderCorr();
+}
 function renderCorrEnhanced(){
   if(!S.loaded) return;
+  const search=searchNormalize(document.getElementById('f-search')?.value||'').trim();
   const sem=document.getElementById('f-sem')?.value;
   const fam=document.getElementById('f-fam')?.value;
   const sMin=parseFloat(document.getElementById('f-score')?.value||'0');
@@ -5247,6 +5302,15 @@ function renderCorrEnhanced(){
   let rows=[];
   S.new.forEach(rN=>{
     if(sem && rN.semestre!=sem) return;
+    if(search){
+      // Cherche aussi dans les ressources en extras (partage exceptionnel) —
+      // pas seulement l'affectation principale, sinon une ressource ancienne
+      // attachée en secondaire resterait introuvable par la recherche.
+      const oldCodes=[S.matching[rN.code]?.oldCode, ...(S.extras?.[rN.code]||[])].filter(Boolean);
+      const oldTitles=oldCodes.map(oc=>S.old.find(r=>r.code===oc)?.titre||'');
+      const hay=searchNormalize([rN.code, rN.titre, ...oldCodes, ...oldTitles].join(' '));
+      if(!hay.includes(search)) return;
+    }
     // R9: une ressource sans correspondance actuelle (refus explicite via
     // S.overrides[code]=null, OU tout simplement jamais appariée par
     // l'algorithme et jamais touchée manuellement) doit rester visible à sa
