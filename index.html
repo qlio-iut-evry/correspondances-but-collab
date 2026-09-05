@@ -414,6 +414,7 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
   <div class="tab-sep"></div>
   <span class="tab-group-label">Vues</span>
   <button class="tab-btn" onclick="showTab('tab-synthese')" title="Tableau de bord synthétique : KPIs, répartition des transitions, ressources prioritaires">📊 Synthèse</button>
+  <button class="tab-btn" onclick="showTab('tab-audit')" title="Vue de contrôle : type, famille et compétences de toutes les ressources ancien+nouveau programme, éditables en un coup d'œil">🧭 Contrôle ressources</button>
   <button class="tab-btn" onclick="showTab('tab-data')" title="Charger des données externes ou consulter les données brutes">📁 Données</button>
 </div>
 
@@ -554,6 +555,47 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
     <div class="card-title">📈 Distribution des scores de correspondance</div>
     <div style="display:flex;gap:3px;align-items:flex-end;height:80px;margin-top:10px" id="synth-dist"></div>
     <div style="display:flex;gap:3px;margin-top:3px;font-size:10px;color:#94a3b8" id="synth-dist-lbl"></div>
+  </div>
+</div>
+
+<!-- ===================== TAB CONTRÔLE RESSOURCES ===================== -->
+<div id="tab-audit" class="content" style="display:none">
+  <div class="sticky">
+    <div class="filter-bar">
+      <span class="filter-label">Programme</span>
+      <select id="audit-prog" onchange="renderAudit()">
+        <option value="">Les deux</option>
+        <option value="old">Ancien</option>
+        <option value="new">Nouveau</option>
+      </select>
+      <span class="filter-label">Semestre</span>
+      <select id="audit-sem" onchange="renderAudit()"><option value="">Tous</option></select>
+      <span class="filter-label">Type</span>
+      <select id="audit-type" onchange="renderAudit()">
+        <option value="">Tous</option>
+        <option value="transversal">Transversale</option>
+        <option value="metier">Métier</option>
+      </select>
+      <span class="filter-label">Famille</span>
+      <select id="audit-fam" onchange="renderAudit()"><option value="">Toutes</option></select>
+      <span class="hint" style="margin-left:auto"><span id="audit-count">0</span> ressource(s)</span>
+    </div>
+  </div>
+  <div class="card" style="padding:0;overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead>
+        <tr style="background:#f1f5f9;position:sticky;top:0;z-index:1">
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Code</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Programme</th>
+          <th style="padding:7px 10px;text-align:center;font-weight:700;color:#475569">S</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Intitulé</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Type</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Famille</th>
+          <th style="padding:7px 10px;text-align:left;font-weight:700;color:#475569">Compétences ciblées</th>
+        </tr>
+      </thead>
+      <tbody id="audit-tbody"></tbody>
+    </table>
   </div>
 </div>
 
@@ -3657,7 +3699,7 @@ document.querySelectorAll('.modal-backdrop').forEach(m=>m.addEventListener('clic
 document.getElementById('modal-history').addEventListener('click',()=>{});
 
 // ===== TABS =====
-const TAB_IDS=['tab-correspondances','tab-exploration','tab-keywords','tab-synthese','tab-data'];
+const TAB_IDS=['tab-correspondances','tab-exploration','tab-keywords','tab-synthese','tab-audit','tab-data'];
 function showTab(id){
   document.querySelectorAll('.content').forEach(p=>p.style.display='none');
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
@@ -3667,6 +3709,76 @@ function showTab(id){
   if(id==='tab-exploration')renderExplore();
   if(id==='tab-keywords')buildKwList();
   if(id==='tab-synthese')renderSynthese();
+  if(id==='tab-audit')renderAudit();
+}
+
+// R35: vue de contrôle transverse (ancien + nouveau programme) pour repérer
+// d'un coup d'œil les ressources mal classées (type/famille/compétences) —
+// type et famille s'éditent inline (menu déroulant, pas de modale) ; les
+// compétences, une LISTE de textes libres qui ne tient pas dans un simple
+// menu déroulant, s'éditent via la modale déjà utilisée partout ailleurs.
+function renderAudit(){
+  if(!S.loaded) return;
+  const semSel=document.getElementById('audit-sem');
+  if(semSel && !semSel.dataset.built){
+    const sems=[...new Set([...S.old,...S.new].map(r=>r.semestre))].sort((a,b)=>a-b);
+    sems.forEach(s=>semSel.innerHTML+=`<option value="${eA(s)}">Semestre ${eH(s)}</option>`);
+    semSel.dataset.built='1';
+  }
+  const famSel=document.getElementById('audit-fam');
+  if(famSel && !famSel.dataset.built){
+    FAMS.forEach(f=>famSel.innerHTML+=`<option value="${eA(f)}">${eH(f)}</option>`);
+    famSel.dataset.built='1';
+  }
+
+  const prog=document.getElementById('audit-prog')?.value||'';
+  const semFil=document.getElementById('audit-sem')?.value||'';
+  const typeFil=document.getElementById('audit-type')?.value||'';
+  const famFil=document.getElementById('audit-fam')?.value||'';
+
+  let items=[];
+  if(prog!=='new') items.push(...S.old.map(r=>({r,side:'old'})));
+  if(prog!=='old') items.push(...S.new.map(r=>({r,side:'new'})));
+
+  items=items.map(({r,side})=>{
+    const auto=isTransversalRes(r);
+    const isT=isTransversalSide(r.code,side,auto);
+    return {r,side,isT,fam:resourceFamily(r)};
+  });
+
+  if(semFil) items=items.filter(x=>String(x.r.semestre)===String(semFil));
+  if(typeFil) items=items.filter(x=>(typeFil==='transversal')===x.isT);
+  if(famFil) items=items.filter(x=>x.fam===famFil);
+
+  items.sort((a,b)=>a.side.localeCompare(b.side)||a.r.semestre-b.r.semestre||a.r.code.localeCompare(b.r.code));
+
+  document.getElementById('audit-count').textContent=items.length;
+
+  document.getElementById('audit-tbody').innerHTML = items.length ? items.map(({r,side,isT,fam})=>{
+    const typeOv=S.typeOverrides[ovKey(side,r.code)];
+    const famOv=S.familyOverrides[ovKey(side,r.code)];
+    const comps=(r.competences||[]).join(' · ');
+    return `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:5px 10px;white-space:nowrap"><span class="code ${side==='new'?'code-new':''}" style="cursor:help" onmouseenter="showResTooltip('${eA(r.code)}','${side}',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(r.code)}</span></td>
+      <td style="padding:5px 10px;white-space:nowrap">${side==='old'?'Ancien':'Nouveau'}</td>
+      <td style="padding:5px 10px;text-align:center">${eH(r.semestre)}</td>
+      <td style="padding:5px 10px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${eA(r.titre)}">${eH(r.titre)}</td>
+      <td style="padding:5px 10px">
+        <select onchange="setResourceType('${eA(r.code)}',this.value,'${side}');renderAudit()" style="font-size:11px;padding:3px 5px;border:1.5px solid ${isT?'#0891b2':'#7c3aed'};border-radius:5px;background:${isT?'#e0f2fe':'#f5f3ff'};color:${isT?'#0369a1':'#6d28d9'}">
+          <option value="auto"${!typeOv?' selected':''}>Auto (${isT?'Transv.':'Métier'})</option>
+          <option value="transversal"${typeOv==='transversal'?' selected':''}>📌 Transversale</option>
+          <option value="metier"${typeOv==='metier'?' selected':''}>⚙️ Métier</option>
+        </select>
+      </td>
+      <td style="padding:5px 10px">
+        <select onchange="setResourceFamily('${eA(r.code)}',this.value,'${side}');renderAudit()" style="font-size:11px;padding:3px 5px;border:1.5px solid ${famOv?'#2563eb':'#cbd5e1'};border-radius:5px">
+          <option value=""${!famOv?' selected':''}>Auto (${eH(fam)})</option>
+          ${FAMS.map(f=>`<option value="${eA(f)}"${famOv===f?' selected':''}>${eH(f)}</option>`).join('')}
+        </select>
+      </td>
+      <td style="padding:5px 10px;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="openResourceEditModal('${side}','${eA(r.code)}')" title="${eA(comps)}${comps?' — cliquer pour modifier':'Aucune — cliquer pour ajouter'}">${comps?eH(comps):'<span class="hint">—</span>'}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" style="padding:16px"><p class="hint">Aucune ressource avec ces filtres.</p></td></tr>';
 }
 
 // ===== UTILS =====
