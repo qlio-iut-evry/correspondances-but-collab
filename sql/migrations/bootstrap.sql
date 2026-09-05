@@ -13,6 +13,17 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   version     TEXT PRIMARY KEY,
   applied_at  TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE schema_migrations ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename='schema_migrations' AND policyname='auth_full_access'
+  ) THEN
+    CREATE POLICY "auth_full_access" ON schema_migrations
+      FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 INSERT INTO schema_migrations (version) VALUES
   ('0001_init'),
