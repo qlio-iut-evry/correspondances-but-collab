@@ -2845,10 +2845,10 @@ function renderReplaceList(){
       <option value="libres"${ui.assigned==='libres'?' selected':''}>Libres seulement</option>
       <option value="affectees"${ui.assigned==='affectees'?' selected':''}>Déjà affectées seulement</option>
     </select>
-    <div style="display:flex;gap:8px;margin-left:auto">
-      ${(newCode in S.overrides)?'<button class="btn btn-outline btn-sm" onclick="resetReplaceTarget()" style="color:#0891b2;border-color:#67e8f9">↺ Revenir au calcul automatique</button>':''}
-      <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a">🆕 À créer — aucun équivalent</button>
-      <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" style="color:#dc2626;border-color:#fca5a5">🗑 Aucune correspondance — laisser vide</button>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-left:auto">
+      ${(newCode in S.overrides)?'<button class="btn btn-outline btn-sm" onclick="resetReplaceTarget()" style="color:#0891b2;border-color:#67e8f9;white-space:nowrap">↺ Revenir au calcul automatique</button>':''}
+      <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a;white-space:nowrap">🆕 À créer — aucun équivalent</button>
+      <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" title="Refus définitif : cette ressource ne sera plus jamais proposée par le calcul automatique, sauf si vous cliquez ensuite sur « Revenir au calcul automatique »." style="color:#dc2626;border-color:#fca5a5;white-space:nowrap">🗑 Refuser toute correspondance</button>
     </div>
   </div>
   <div style="max-height:380px;overflow-y:auto">`;
