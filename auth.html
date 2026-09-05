@@ -32,7 +32,7 @@
   h2 { font-size: 18px; color: #1e293b; margin-bottom: 20px; font-weight: 700 }
   .field { margin-bottom: 16px }
   label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px }
-  input[type=email], input[type=password] {
+  input[type=email], input[type=password], input[type=text] {
     width: 100%; padding: 10px 12px;
     border: 1px solid #cbd5e1; border-radius: 8px;
     font-size: 14px; color: #1e293b;
@@ -40,6 +40,18 @@
     outline: none;
   }
   input:focus { border-color: #1e3a5f; box-shadow: 0 0 0 3px rgba(30,58,95,.1) }
+  /* Icône "afficher/masquer" superposée aux champs mot de passe — bascule
+     leur type password/text sans changer le reste de leur mise en forme
+     (d'où le sélecteur ci-dessus étendu à input[type=text] : un champ
+     mot de passe basculé en visible doit garder exactement le même style). */
+  .pwd-wrap { position: relative }
+  .pwd-wrap input { padding-right: 40px }
+  .pwd-toggle {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    cursor: pointer; font-size: 16px; line-height: 1; user-select: none;
+    background: none; border: none; padding: 4px; color: #64748b;
+  }
+  .pwd-toggle:hover { color: #1e3a5f }
   .btn-primary {
     width: 100%; padding: 11px;
     background: #1e3a5f; color: #fff;
@@ -98,8 +110,11 @@
     </div>
     <div class="field">
       <label>Mot de passe</label>
-      <input type="password" id="login-pwd" placeholder="••••••••" autocomplete="current-password"
-        onkeydown="if(event.key==='Enter') doLogin()"/>
+      <div class="pwd-wrap">
+        <input type="password" id="login-pwd" placeholder="••••••••" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter') doLogin()"/>
+        <button type="button" class="pwd-toggle" onclick="togglePwdVisibility('login-pwd',this)" title="Afficher le mot de passe">👁️</button>
+      </div>
       <div style="text-align:right;margin-top:6px">
         <a href="#" onclick="event.preventDefault();showForgotForm()" style="font-size:12px;color:#2d5a8e;text-decoration:none">Mot de passe oublié ?</a>
       </div>
@@ -121,8 +136,11 @@
     </div>
     <div class="field">
       <label>Mot de passe (8 caractères minimum)</label>
-      <input type="password" id="signup-pwd" placeholder="••••••••"
-        onkeydown="if(event.key==='Enter') doSignup()"/>
+      <div class="pwd-wrap">
+        <input type="password" id="signup-pwd" placeholder="••••••••"
+          onkeydown="if(event.key==='Enter') doSignup()"/>
+        <button type="button" class="pwd-toggle" onclick="togglePwdVisibility('signup-pwd',this)" title="Afficher le mot de passe">👁️</button>
+      </div>
     </div>
     <button class="btn-primary" id="btn-signup" onclick="doSignup()">Créer mon compte</button>
     <div id="signup-msg" class="msg"></div>
@@ -146,12 +164,18 @@
     <h2>Choisir un nouveau mot de passe</h2>
     <div class="field">
       <label>Nouveau mot de passe (8 caractères minimum)</label>
-      <input type="password" id="reset-pwd" placeholder="••••••••" autocomplete="new-password"/>
+      <div class="pwd-wrap">
+        <input type="password" id="reset-pwd" placeholder="••••••••" autocomplete="new-password"/>
+        <button type="button" class="pwd-toggle" onclick="togglePwdVisibility('reset-pwd',this)" title="Afficher le mot de passe">👁️</button>
+      </div>
     </div>
     <div class="field">
       <label>Confirmer le nouveau mot de passe</label>
-      <input type="password" id="reset-pwd2" placeholder="••••••••" autocomplete="new-password"
-        onkeydown="if(event.key==='Enter') doResetPassword()"/>
+      <div class="pwd-wrap">
+        <input type="password" id="reset-pwd2" placeholder="••••••••" autocomplete="new-password"
+          onkeydown="if(event.key==='Enter') doResetPassword()"/>
+        <button type="button" class="pwd-toggle" onclick="togglePwdVisibility('reset-pwd2',this)" title="Afficher le mot de passe">👁️</button>
+      </div>
     </div>
     <button class="btn-primary" id="btn-reset" onclick="doResetPassword()">Valider le nouveau mot de passe</button>
     <div id="reset-msg" class="msg"></div>
@@ -207,6 +231,18 @@ function showForgotForm() {
 
 function showLoginForm() {
   switchTab('login');
+}
+
+// Bascule un champ mot de passe entre masqué et visible. Le sélecteur CSS
+// des champs (input[type=email], input[type=password], input[type=text])
+// couvre les trois types pour que le style ne change pas quand on passe de
+// password à text.
+function togglePwdVisibility(id, btn) {
+  const input = document.getElementById(id);
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁️';
+  btn.title = show ? 'Masquer le mot de passe' : 'Afficher le mot de passe';
 }
 
 function showMsg(id, type, text) {
