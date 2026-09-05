@@ -3513,7 +3513,7 @@ const XLCOLORS={
   score:[[55,'FFDCFCE7'],[35,'FFFEF9C3'],[20,'FFFED7AA'],[0,'FFF1F5F9']],
   sem:['FFDBEAFE','FFFCE7F3','FFFEF3C7','FFD1FAE5','FFE0E7FF','FFFFE4E6'],
   flagOn:'FFD97606', flagDup:'FFDC2626', flagMulti:'FF2563EB', flagOff:'FFE2E8F0',
-  band:'FFF8FAFC'
+  band:'FFF8FAFC', noMatch:'FFFFF1E6', toCreate:'FFFEF3C7'
 };
 function xlScoreFill(s){ return (XLCOLORS.score.find(([min])=>s>=min)||XLCOLORS.score.at(-1))[1]; }
 function xlSemFill(sem){ return XLCOLORS.sem[(Number(sem)-1+XLCOLORS.sem.length)%XLCOLORS.sem.length]; }
@@ -3610,26 +3610,42 @@ async function exportExcel(btn){
     xlStyleHeaderRow(headerRow);
     ws.autoFilter={from:{row:6,column:1},to:{row:6,column:NCOLS}};
 
+    // R46: les nouvelles ressources sans correspondance étaient absentes du
+    // tableau (juste comptées dans l'indicateur "Sans correspondance") —
+    // elles apparaissent maintenant en ligne, avec les colonnes "ancienne
+    // ressource" vides et un message dédié, pour que la liste exacte soit
+    // visible sans repasser par l'application.
     const rowsData=S.new
       .map(rN=>{
         const m=S.matching[rN.code];
-        if(!m||!m.oldCode) return null;
-        const rO=S.old.find(r=>r.code===m.oldCode);
-        if(!rO) return null;
+        const rO=(m&&m.oldCode)?S.old.find(r=>r.code===m.oldCode):null;
+        if(!rO) return {rN,rO:null,score:null,row:null,noMatch:true};
         const row=S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code);
-        return {rN,rO,score:effectiveScore(rN.code),row};
+        return {rN,rO,score:effectiveScore(rN.code),row,noMatch:false};
       })
-      .filter(Boolean)
       .sort((a,b)=>a.rN.semestre-b.rN.semestre||a.rN.code.localeCompare(b.rN.code));
 
     let excelRowIdx=7;
-    rowsData.forEach(({rN,rO,score:sc,row})=>{
+    rowsData.forEach(({rN,rO,score:sc,row,noMatch})=>{
+      const r=ws.getRow(excelRowIdx);
+      if(noMatch){
+        const toCreate=isToCreate(rN.code);
+        const vals=[rN.code,rN.titre,rN.semestre,resourceFamily(rN),'—',
+          toCreate?'🆕 À créer — aucun équivalent':'⚠️ Sans correspondance',
+          '','','','','','','','','',''];
+        vals.forEach((val,i)=>r.getCell(i+1).value=val);
+        r.eachCell({includeEmpty:true},c=>{ c.fill=xlFill(toCreate?XLCOLORS.toCreate:XLCOLORS.noMatch); });
+        r.getCell(3).fill=xlFill(xlSemFill(rN.semestre));
+        r.getCell(3).font=xlFont({bold:true});
+        r.getCell(6).font=xlFont({italic:true,color:{argb:toCreate?'FFB45309':'FFEA580C'}});
+        excelRowIdx++;
+        return;
+      }
       const v=S.validations[rN.code]||{};
       const extraCodes=S.extras?.[rN.code]||[];
       const extrasText=extraCodes.map(oc=>{const r=S.old.find(x=>x.code===oc);return r?`${r.code} — ${r.titre}`:oc;}).join(' ; ');
       const semChanged=(rO.semestre%2)!==(rN.semestre%2);
       const isDup=duplicatedOld.has(rO.code);
-      const r=ws.getRow(excelRowIdx);
       const vals=[rN.code,rN.titre,rN.semestre,resourceFamily(rN),rO.code,rO.titre,rO.semestre,rO.parcours_code||'TC',
         Number(sc.toFixed(1)),resourceFamily(rO),row?.sharedKeywords||'',semChanged?'OUI':'',isDup?'OUI':'',extrasText,v.status||'',v.comment||''];
       vals.forEach((val,i)=>r.getCell(i+1).value=val);
@@ -3771,25 +3787,41 @@ function exportPDF(){
   }
   drawTableHeader();
 
+  // R46: les nouvelles ressources sans correspondance étaient absentes du
+  // tableau (juste comptées dans l'indicateur "Sans correspondance") —
+  // elles apparaissent maintenant en ligne, avec un message dédié à la
+  // place des colonnes "ancienne ressource", pour que la liste exacte
+  // soit visible sans repasser par l'application.
   const rowsData=S.new
     .map(rN=>{
       const m=S.matching[rN.code];
-      if(!m||!m.oldCode) return null;
-      const rO=S.old.find(r=>r.code===m.oldCode);
-      if(!rO) return null;
-      return {rN,rO,score:effectiveScore(rN.code)};
+      const rO=(m&&m.oldCode)?S.old.find(r=>r.code===m.oldCode):null;
+      if(!rO) return {rN,rO:null,score:null,noMatch:true};
+      return {rN,rO,score:effectiveScore(rN.code),noMatch:false};
     })
-    .filter(Boolean)
     .sort((a,b)=>a.rN.semestre-b.rN.semestre||a.rN.code.localeCompare(b.rN.code));
 
   let lastSem=null,idx=0;
-  rowsData.forEach(({rN,rO,score:s})=>{
+  rowsData.forEach(({rN,rO,score:s,noMatch})=>{
     if(rN.semestre!==lastSem){
       lastSem=rN.semestre;
       drawSemBanner(lastSem);
       idx=0;
     }
     if(y>H-12){doc.addPage();y=20;drawTableHeader();}
+    if(noMatch){
+      const toCreate=isToCreate(rN.code);
+      if(idx%2===0){doc.setFillColor(...(toCreate?[254,243,199]:[255,241,230]));doc.rect(10,y-4,W-20,7,'F');}
+      idx++;
+      doc.setTextColor(30,41,59);
+      doc.text(rN.code,13,y);
+      doc.text(sanitizeForPdf(rN.titre,32),39,y);
+      doc.setTextColor(...(toCreate?[180,83,9]:[234,88,12]));doc.setFont('helvetica','bold');
+      doc.text(sanitizeForPdf(toCreate?'A creer - aucun equivalent dans l\'ancien programme':'Sans correspondance',60),89,y);
+      doc.setFont('helvetica','normal');
+      y+=7;
+      return;
+    }
     const rc=s>=55?[220,252,231]:s>=35?[254,249,195]:s>=20?[254,215,170]:[241,245,249];
     if(idx%2===0){doc.setFillColor(...rc);doc.rect(10,y-4,W-20,7,'F');}
     idx++;
