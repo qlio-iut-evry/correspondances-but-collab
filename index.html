@@ -2758,8 +2758,14 @@ function buildKwList(){
   S._kwAllList=[...map.entries()]
     .map(([key,v])=>({key,label:v.label,count:v.count}))
     .sort((a,b)=>a.label.localeCompare(b.label,'fr',{sensitivity:'base'}));
-  sel.innerHTML='<option value="">Sélectionner un mot-clé...</option>';
-  S._kwAllList.forEach(o=>sel.innerHTML+=`<option value="${eA(o.key)}">${eH(o.label)} (${o.count})</option>`);
+  // R61: chaque `sel.innerHTML+=` ré-analysait tout le HTML déjà accumulé
+  // avant d'ajouter l'option suivante — sur ~800 mots-clés distincts (jeu de
+  // données réel), cette boucle à elle seule prenait plus de 12 secondes et
+  // gelait l'appli le temps d'ouvrir l'onglet. Une seule affectation finale
+  // sur du HTML déjà construit (`.map().join('')`) évite cette repasse
+  // quadratique — même résultat, temps ramené à quelques millisecondes.
+  sel.innerHTML='<option value="">Sélectionner un mot-clé...</option>'
+    + S._kwAllList.map(o=>`<option value="${eA(o.key)}">${eH(o.label)} (${o.count})</option>`).join('');
   if(current && [...sel.options].some(o=>o.value===current)) sel.value=current;
   // Mettre à jour le label dans l'input si un mot-clé est déjà sélectionné
   if(current){
