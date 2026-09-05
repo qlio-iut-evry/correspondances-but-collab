@@ -344,7 +344,7 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
   <div style="display:flex;align-items:center;gap:4px;border-right:1px solid rgba(255,255,255,.2);padding-right:12px;margin-right:4px">
     <span style="font-size:10px;color:rgba(255,255,255,.5);margin-right:4px;text-transform:uppercase;letter-spacing:.5px">Export</span>
     <button class="hdr-btn" onclick="exportExcel(this)" title="Exporter en Excel — 4 feuilles mises en forme (couleurs par score/semestre, alertes changement de semestre/doublon/partage) avec filtres Excel natifs sur chaque feuille">📊 Excel</button>
-    <button class="hdr-btn" onclick="exportPDF()" title="Exporter le tableau de correspondances en PDF paysage">📄 PDF</button>
+    <button class="hdr-btn" onclick="exportPDF(this)" title="Exporter le tableau de correspondances en PDF paysage">📄 PDF</button>
     <button class="hdr-btn" onclick="exportProjectJSON()" title="Sauvegarder le projet complet (overrides, validations, pondérations, parcours actifs...) dans un fichier — à utiliser avec « Importer un projet » depuis le sélecteur de projet" style="background:rgba(34,197,94,.25)">📦 Exporter le projet</button>
   </div>
   <!-- Aide -->
@@ -3796,8 +3796,18 @@ function sanitizeForPdf(t,n){
   return n?s.slice(0,n):s;
 }
 
-async function exportPDF(){
+// R55: contrairement à exportExcel, ce bouton ne se désactivait jamais et
+// n'affichait aucun indicateur pendant la génération — un utilisateur
+// pouvait cliquer plusieurs fois en pensant que rien ne s'était passé,
+// surtout au tout premier export qui charge maintenant jsPDF à la demande
+// (ensureLib). Même pattern que exportExcel : bouton désactivé + libellé
+// "Génération…" pendant l'exécution, restauré dans un finally quoi qu'il
+// arrive (y compris en cas d'erreur).
+async function exportPDF(btn){
   if(!S.loaded){alert('Chargez d\'abord les données.');return;}
+  const prevLabel=btn?btn.textContent:null;
+  if(btn){btn.disabled=true;btn.textContent='⏳ Génération…';}
+  try{
   await ensureLib('lib-jspdf', ()=>typeof window.jspdf!=='undefined');
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
@@ -3955,6 +3965,9 @@ async function exportPDF(){
   const np=doc.internal.getNumberOfPages();
   for(let i=1;i<=np;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(150);doc.text(`Correspondances QLIO - ${d} - Page ${i}/${np}`,W/2,H-4,{align:'center'});}
   doc.save(`Correspondances_QLIO_${d.replace(/\//g,'-')}.pdf`);
+  } finally {
+    if(btn){btn.disabled=false;btn.textContent=prevLabel||'📄 PDF';}
+  }
 }
 
 // R40: export JSON complet du projet actif — overrides, validations, tous
@@ -6255,10 +6268,38 @@ function subscribeToRealtime() {
     });
 }
 
+// R56: la notification de changement distant ne citait que le nom de la
+// table ("Mise à jour reçue (overrides)") — pour savoir QUOI regarder,
+// l'utilisateur devait deviner ou re-parcourir tout le tableau. On extrait
+// désormais le code de la ressource concernée depuis la ligne modifiée
+// (new_code pour overrides/validations/extras, resource_code+side pour les
+// 4 tables d'overrides par ressource, resource_code seul pour l'historique
+// — voir sql/migrations/0001_init.sql et 0003/0004 pour le schéma exact),
+// et son titre si la ressource est connue localement.
+const REALTIME_TABLE_LABELS = {
+  overrides: 'association', validations: 'validation',
+  kw_overrides: 'mots-clés', family_overrides: 'famille',
+  type_overrides: 'type', competence_overrides: 'compétences',
+  extras: 'partage exceptionnel', history: 'historique'
+};
+function describeRealtimeChange(payload){
+  const label = REALTIME_TABLE_LABELS[payload.table] || payload.table;
+  // payload.old n'a souvent que l'id sur un DELETE (REPLICA IDENTITY par
+  // défaut = clé primaire seule) — on retombe alors sur le nom de table.
+  const row = payload.new || payload.old || {};
+  let code = null, side = 'new';
+  if ('new_code' in row) { code = row.new_code; side = 'new'; }
+  else if ('resource_code' in row) { code = row.resource_code; side = row.side || 'new'; }
+  if (!code) return label;
+  const r = (side==='old' ? S.old : S.new)?.find(x=>x.code===code);
+  const titre = r ? ' — ' + r.titre.slice(0,28) : '';
+  return `${code}${titre} (${label})`;
+}
+
 /** Appelé quand un collègue modifie quelque chose */
 async function onRemoteChange(payload) {
   console.log('[Realtime] Changement distant:', payload.table, payload.eventType);
-  showSyncToast(`Mise à jour reçue (${payload.table})`);
+  showSyncToast(`Mise à jour reçue : ${describeRealtimeChange(payload)}`);
   await loadProjectState();  // Rechargement complet de l'état
 }
 
@@ -6281,13 +6322,17 @@ function showSyncToast(msg) {
     toast = document.createElement('div');
     toast.id = 'sync-toast';
     toast.style.cssText = `position:fixed;bottom:70px;right:20px;background:#1e3a5f;color:#fff;
-      padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;
-      box-shadow:0 4px 12px rgba(0,0,0,.3);transition:opacity .3s`;
+      padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;max-width:280px;
+      word-break:break-word;box-shadow:0 4px 12px rgba(0,0,0,.3);transition:opacity .3s`;
     document.body.appendChild(toast);
   }
   toast.textContent = '🔄 ' + msg;
   toast.style.opacity = '1';
-  setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+  // R56: délai allongé (2.5s -> 3.5s, aligné sur showToast) — le message
+  // inclut maintenant le code et le titre de la ressource, plus long qu'un
+  // simple nom de table à lire.
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 3500);
 }
 
 // ── Patch des fonctions de l'appli originale ──────────────────────────────────

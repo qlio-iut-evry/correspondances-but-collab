@@ -520,10 +520,38 @@ function subscribeToRealtime() {
     });
 }
 
+// R56: la notification de changement distant ne citait que le nom de la
+// table ("Mise à jour reçue (overrides)") — pour savoir QUOI regarder,
+// l'utilisateur devait deviner ou re-parcourir tout le tableau. On extrait
+// désormais le code de la ressource concernée depuis la ligne modifiée
+// (new_code pour overrides/validations/extras, resource_code+side pour les
+// 4 tables d'overrides par ressource, resource_code seul pour l'historique
+// — voir sql/migrations/0001_init.sql et 0003/0004 pour le schéma exact),
+// et son titre si la ressource est connue localement.
+const REALTIME_TABLE_LABELS = {
+  overrides: 'association', validations: 'validation',
+  kw_overrides: 'mots-clés', family_overrides: 'famille',
+  type_overrides: 'type', competence_overrides: 'compétences',
+  extras: 'partage exceptionnel', history: 'historique'
+};
+function describeRealtimeChange(payload){
+  const label = REALTIME_TABLE_LABELS[payload.table] || payload.table;
+  // payload.old n'a souvent que l'id sur un DELETE (REPLICA IDENTITY par
+  // défaut = clé primaire seule) — on retombe alors sur le nom de table.
+  const row = payload.new || payload.old || {};
+  let code = null, side = 'new';
+  if ('new_code' in row) { code = row.new_code; side = 'new'; }
+  else if ('resource_code' in row) { code = row.resource_code; side = row.side || 'new'; }
+  if (!code) return label;
+  const r = (side==='old' ? S.old : S.new)?.find(x=>x.code===code);
+  const titre = r ? ' — ' + r.titre.slice(0,28) : '';
+  return `${code}${titre} (${label})`;
+}
+
 /** Appelé quand un collègue modifie quelque chose */
 async function onRemoteChange(payload) {
   console.log('[Realtime] Changement distant:', payload.table, payload.eventType);
-  showSyncToast(`Mise à jour reçue (${payload.table})`);
+  showSyncToast(`Mise à jour reçue : ${describeRealtimeChange(payload)}`);
   await loadProjectState();  // Rechargement complet de l'état
 }
 
@@ -546,13 +574,17 @@ function showSyncToast(msg) {
     toast = document.createElement('div');
     toast.id = 'sync-toast';
     toast.style.cssText = `position:fixed;bottom:70px;right:20px;background:#1e3a5f;color:#fff;
-      padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;
-      box-shadow:0 4px 12px rgba(0,0,0,.3);transition:opacity .3s`;
+      padding:8px 14px;border-radius:8px;font-size:12px;z-index:9999;max-width:280px;
+      word-break:break-word;box-shadow:0 4px 12px rgba(0,0,0,.3);transition:opacity .3s`;
     document.body.appendChild(toast);
   }
   toast.textContent = '🔄 ' + msg;
   toast.style.opacity = '1';
-  setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+  // R56: délai allongé (2.5s -> 3.5s, aligné sur showToast) — le message
+  // inclut maintenant le code et le titre de la ressource, plus long qu'un
+  // simple nom de table à lire.
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 3500);
 }
 
 // ── Patch des fonctions de l'appli originale ──────────────────────────────────
