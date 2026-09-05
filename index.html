@@ -2719,6 +2719,12 @@ function setResourceFamily(code, family, side){
   if(!code) return;
   const key=ovKey(side,code);
   const currentFam=document.getElementById('f-fam')?.value||'';
+  // R27: buildFilters() reconstruit aussi <select id="f-sem"> à partir de zéro
+  // (innerHTML complet) — sans restaurer sa valeur comme pour f-fam, le
+  // filtre semestre retombait sur "Tous semestres" à chaque changement de
+  // famille, donnant l'impression de revenir sur le semestre 1 (S1 est le
+  // premier groupe affiché une fois le filtre vidé).
+  const currentSem=document.getElementById('f-sem')?.value||'';
   if(!family){
     delete S.familyOverrides[key];
     addHist(code,'famille-auto','Retour famille automatique');
@@ -2729,6 +2735,8 @@ function setResourceFamily(code, family, side){
   buildFilters();
   const famFilter=document.getElementById('f-fam');
   if(famFilter && [...famFilter.options].some(o=>o.value===currentFam)) famFilter.value=currentFam;
+  const semFilter=document.getElementById('f-sem');
+  if(semFilter && [...semFilter.options].some(o=>o.value===currentSem)) semFilter.value=currentSem;
   recomputeMatching(); updateStats(); renderCorr();
 }
 
