@@ -4549,8 +4549,18 @@ function renderCorrEnhanced(){
   S.new.forEach(rN=>{
     (allSemGroups[rN.semestre]||=[]).push(rN);
   });
+  // R33: décompte des ressources ANCIENNES par semestre, à côté de celui des
+  // nouvelles déjà affiché — en comptant pour 1 seule ressource les variantes
+  // parcours d'une même ressource (même code hors acronyme parcours, ex.
+  // R3.MP.13/R3.PSC.13/R3.PSMI.13/R3.MTD.13 = 1), pas une par parcours.
+  const allSemGroupsOld={};
+  S.old.forEach(rO=>{
+    const m=rO.code.match(/^R(\d+)\.(?:[A-Z]+\.)?(\d+)$/);
+    const base=m?('R'+m[1]+'.'+m[2]):rO.code;
+    (allSemGroupsOld[rO.semestre]||=new Set()).add(base);
+  });
   const semChips=Object.keys(allSemGroups).sort((a,b)=>a-b).map(s=>
-    `<button class="semester-chip${sem==s?' active':''}" onclick="setCorrSemester('${eA(s)}')">S${eH(s)} · ${allSemGroups[s].length}</button>`
+    `<button class="semester-chip${sem==s?' active':''}" onclick="setCorrSemester('${eA(s)}')" title="${allSemGroups[s].length} ressource(s) nouveau programme · ${allSemGroupsOld[s]?.size||0} ressource(s) ancien programme">S${eH(s)} · ${allSemGroups[s].length} / ${allSemGroupsOld[s]?.size||0}</button>`
   ).join('');
 
   document.getElementById('corr-stats').innerHTML=`
