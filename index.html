@@ -3524,14 +3524,21 @@ function closeModal(id){document.getElementById(id)?.classList.remove('open');}
 // seulement certaines. Permet de sortir d'une modale ouverte (ex. édition
 // d'une ressource) pour aller changer de projet sans devoir chercher un
 // bouton Annuler/Fermer précis, et sans déclencher d'action.
+// R24: #project-modal-overlay (créée dynamiquement par showProjectModal, donc
+// sans classe .modal-backdrop) doit suivre la même règle — on ne force plus
+// la sélection d'un projet pour sortir de cette modale.
 document.addEventListener('click', function(e){
   if(e.target.classList && e.target.classList.contains('modal-backdrop') && e.target.classList.contains('open')){
     e.target.classList.remove('open');
+  }
+  if(e.target.id==='project-modal-overlay'){
+    e.target.remove();
   }
 });
 document.addEventListener('keydown', function(e){
   if(e.key==='Escape'){
     document.querySelectorAll('.modal-backdrop.open').forEach(m=>m.classList.remove('open'));
+    document.getElementById('project-modal-overlay')?.remove();
   }
 });
 
@@ -3854,6 +3861,7 @@ function renderCorrDetail(newCode){
   const v=S.validations[newCode]||{};
   const typeInfoN=resourceTypeInfo(newCode,row,rO,rN);
   const famN=resourceFamily(rN);
+  const refreshExpr="renderCorrDetail('"+eA(newCode)+"')";
 
   // Alternatives top 5
   const nT=rN?isTransversalRes(rN):false;
@@ -3882,37 +3890,6 @@ function renderCorrDetail(newCode){
     ? '<div class="detail-section"><div class="detail-title">Alternatives</div><div style="display:flex;flex-direction:column;gap:4px;margin-top:6px">'+altsRows+'</div></div>'
     : '';
 
-  // 6 familles fixes
-  const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration'];
-
-  function famButtons(code, currentFam, hasFamOverride, side){
-    const btns=FAMS.map(function(f){
-      const active=f===currentFam;
-      const st='padding:4px 6px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;width:100%;'
-        +'border:1.5px solid '+(active?'#1e3a5f':'#cbd5e1')+';'
-        +'background:'+(active?'#1e3a5f':'#fff')+';'
-        +'color:'+(active?'#fff':'#475569')+';';
-      return '<button onclick="setResourceFamily(\''+eA(code)+'\',\''+eA(f)+'\',\''+side+'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="'+st+'" title="'+eH(f)+'">'+eH(f)+'</button>';
-    }).join('');
-    const reset=hasFamOverride
-      ? '<button onclick="setResourceFamily(\''+eA(code)+'\',\'\',\''+side+'\');renderCorr();renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
-      : '';
-    return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px">'+btns+reset+'</div>';
-  }
-
-  function typeButtons(code, isTransv, hasOverride, side){
-    const stT='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
-      +'border:2px solid '+(isTransv?'#0891b2':'#cbd5e1')+';background:'+(isTransv?'#e0f2fe':'#fff')+';color:'+(isTransv?'#0369a1':'#64748b')+';';
-    const stM='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
-      +'border:2px solid '+(!isTransv?'#7c3aed':'#cbd5e1')+';background:'+(!isTransv?'#f5f3ff':'#fff')+';color:'+(!isTransv?'#6d28d9':'#64748b')+';';
-    const btnT='<button onclick="setResourceType(\''+eA(code)+'\',\'transversal\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stT+'">📌 Transversale</button>';
-    const btnM='<button onclick="setResourceType(\''+eA(code)+'\',\'metier\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="'+stM+'">⚙️ Métier</button>';
-    const btnReset=hasOverride
-      ? '<button onclick="setResourceType(\''+eA(code)+'\',\'auto\',\''+side+'\');renderCorrDetail(\''+eA(newCode)+'\')" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
-      : '';
-    return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">'+btnT+btnM+btnReset+'</div>';
-  }
-
   const isTransvN=typeInfoN.isTransv;
   const hasTypeOverrideN=!!S.typeOverrides[ovKey('new',newCode)];
   const hasFamOverrideN=!!S.familyOverrides[ovKey('new',newCode)];
@@ -3939,73 +3916,17 @@ function renderCorrDetail(newCode){
       +'<button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%" onclick="openCompare(\''+eA(rO.code)+'\',\''+eA(newCode)+'\')">🔬 Comparer en détail</button>')
     : '<p class="hint">Aucune ressource ancienne proposée.</p>';
 
-  // Éditeur de mots-clés inline pour le panneau latéral
-  function kwEditor(code, side){
-    const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
-    if(!rr) return '';
-    const hasKwOverride=!!(S.kwOverrides||{})[ovKey(side,code)];
-    const kwInputId='kw-panel-'+code.replace(/[^a-z0-9]/gi,'-');
-    const pills=(rr.mots_cles||[]).map(k=>{
-      const ek=eA(k);
-      return '<span style="display:inline-flex;align-items:center;gap:2px;background:#dbeafe;color:#1e40af;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600;margin:2px">'
-        +eH(k)
-        +'<button onclick="removeKwPanel(\''+eA(code)+'\',\''+side+'\',\''+ek+'\',\''+eA(newCode)+'\');" style="background:none;border:none;cursor:pointer;color:#1e40af;font-size:12px;padding:0 2px;line-height:1" title="Supprimer ce mot-clé">×</button>'
-        +'</span>';
-    }).join('');
-        const resetBtn = hasKwOverride
-      ? '<button onclick="resetKwPanel(\''+eA(code)+'\',\''+side+'\',\''+eA(newCode)+'\')" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b;cursor:pointer;margin-top:4px;display:block">↺ Rétablir mots-clés originaux</button>'
-      : '';
-    return '<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:4px">Mots-clés'
-      +(hasKwOverride?' <span style="font-size:9px;background:#dbeafe;color:#1d4ed8;border-radius:8px;padding:1px 5px">modifiés</span>':'')
-      +'</div>'
-      +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucun mot-clé</span>' )+'</div>'
-      +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
-        +'<input id="'+kwInputId+'-new" type="text" placeholder="Nouveau mot-clé…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
-        +'<button onclick="(function(){const inp=document.getElementById(\''+kwInputId+'-new\');const v=inp?inp.value.trim():\'\';if(!v)return;const rr2=('+( side==='new'?'S.new':'S.old' )+').find(x=>x.code===\''+eA(code)+'\');if(!rr2)return;rr2.mots_cles=[...(rr2.mots_cles||[]),v];S.kwOverrides[\''+eA(ovKey(side,code))+'\']=[...(rr2.mots_cles)];S.rows.forEach(row=>{const aff=\''+side+'\' ===\'new\'?row.newCode===\''+eA(code)+'\':row.oldCode===\''+eA(code)+'\';if(!aff)return;const rO3=S.old.find(x=>x.code===row.oldCode);const rN3=S.new.find(x=>x.code===row.newCode);if(rO3&&rN3)row.sharedKeywords=arrayOverlap(rO3.mots_cles||[],rN3.mots_cles||[]).join(\', \');});recomputeMatching();renderCorr();buildKwList();saveState();renderCorrDetail(\''+eA(newCode)+'\');})()" style="padding:4px 8px;border-radius:5px;border:none;background:#1e3a5f;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
-      +'</div>'
-      +resetBtn;
-  }
-
-  // R16: éditeur de compétences ciblées inline — même patron que kwEditor,
-  // mais les compétences n'entrent pas dans le calcul du score (pas de
-  // recomputeMatching nécessaire après modification).
-  function competenceEditor(code, side){
-    const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
-    if(!rr) return '';
-    const hasOverride=!!(S.competenceOverrides||{})[ovKey(side,code)];
-    const compInputId='comp-panel-'+code.replace(/[^a-z0-9]/gi,'-');
-    const pills=(rr.competences||[]).map(c=>{
-      const ec=eA(c);
-      return '<div style="display:flex;align-items:flex-start;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;margin:2px 0">'
-        +'<span style="flex:1">'+eH(c)+'</span>'
-        +'<button onclick="removeCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+ec+'\',\''+eA(newCode)+'\');" style="background:none;border:none;cursor:pointer;color:#166534;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0" title="Supprimer cette compétence">×</button>'
-        +'</div>';
-    }).join('');
-    const resetBtn = hasOverride
-      ? '<button onclick="resetCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+eA(newCode)+'\')" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b;cursor:pointer;margin-top:4px;display:block">↺ Rétablir compétences originales</button>'
-      : '';
-    return '<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:4px">Compétences ciblées'
-      +(hasOverride?' <span style="font-size:9px;background:#dcfce7;color:#166534;border-radius:8px;padding:1px 5px">modifiées</span>':'')
-      +'</div>'
-      +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucune compétence</span>' )+'</div>'
-      +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
-        +'<input id="'+compInputId+'-new" type="text" placeholder="Nouvelle compétence…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
-        +'<button onclick="addCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+compInputId+'\',\''+eA(newCode)+'\')" style="padding:4px 8px;border-radius:5px;border:none;background:#166534;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
-      +'</div>'
-      +resetBtn;
-  }
-
   const editOldHtml=rO
     ? ('<div style="border-top:1px solid #e2e8f0;padding-top:12px;margin-top:12px">'
         +'<div style="font-size:11px;font-weight:700;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:4px;margin-bottom:8px">'
           +'<span class="code" style="font-size:10px">'+eH(rO.code)+'</span> Ancienne ressource'
         +'</div>'
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px">Type pédagogique</div>'
-        +typeButtons(rO.code,rOTypeIsTransv,hasTypeOverrideO,'old')
+        +typeButtons(rO.code,rOTypeIsTransv,hasTypeOverrideO,'old',refreshExpr)
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:2px">Famille</div>'
-        +famButtons(rO.code,resourceFamily(rO),hasFamOverrideO,'old')
-        +kwEditor(rO.code,'old')
-        +competenceEditor(rO.code,'old')
+        +famButtons(rO.code,resourceFamily(rO),hasFamOverrideO,'old',refreshExpr)
+        +kwEditor(rO.code,'old',refreshExpr)
+        +competenceEditor(rO.code,'old',refreshExpr)
       +'</div>')
     : '';
 
@@ -4042,31 +3963,145 @@ function renderCorrDetail(newCode){
           +'<span class="code code-new" style="font-size:10px">'+eH(rN?rN.code:'')+'</span> Nouvelle ressource'
         +'</div>'
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px">Type pédagogique</div>'
-        +typeButtons(newCode,isTransvN,hasTypeOverrideN,'new')
+        +typeButtons(newCode,isTransvN,hasTypeOverrideN,'new',refreshExpr)
         +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:2px">Famille</div>'
-        +famButtons(newCode,famN,hasFamOverrideN,'new')
-        +kwEditor(newCode,'new')
-        +competenceEditor(newCode,'new')
+        +famButtons(newCode,famN,hasFamOverrideN,'new',refreshExpr)
+        +kwEditor(newCode,'new',refreshExpr)
+        +competenceEditor(newCode,'new',refreshExpr)
       +'</div>'
       +editOldHtml
     +'</div>';
 
-  // R17: la même fenêtre de détail alimente le panneau latéral ET, si elle
-  // est ouverte, la modale d'édition rapide déclenchée par un clic sur une
-  // ligne du tableau — pas de logique dupliquée à maintenir à deux endroits.
   box.innerHTML=html;
-  const modalBody=document.getElementById('modal-resource-detail-body');
-  if(modalBody) modalBody.innerHTML=html;
-  const modalTitle=document.getElementById('modal-resource-detail-title');
-  if(modalTitle) modalTitle.textContent=(rN?rN.code+' — '+rN.titre:'');
 }
 
-// R17: ouvre la modale d'édition rapide pour une ligne du tableau — évite
-// d'avoir à chercher le panneau latéral à droite de l'écran pour éditer une
-// ressource (validation, famille, type, mots-clés, compétences).
-function openResourceDetailModal(newCode){
-  selectCorrRow(newCode,false);
+// 6 familles fixes
+const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration'];
+
+// R23: typeButtons/famButtons/kwEditor/competenceEditor sont partagés entre le
+// panneau latéral (renderCorrDetail) et la modale d'édition rapide
+// (renderResourceEditPanel) — chaque appelant fournit `refreshExpr`, une
+// expression JS (déjà échappée) à ré-exécuter après modification pour
+// rafraîchir SA propre vue, sans coupler ces fonctions à un seul appelant.
+function famButtons(code, currentFam, hasFamOverride, side, refreshExpr){
+  const btns=FAMS.map(function(f){
+    const active=f===currentFam;
+    const st='padding:4px 6px;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;width:100%;'
+      +'border:1.5px solid '+(active?'#1e3a5f':'#cbd5e1')+';'
+      +'background:'+(active?'#1e3a5f':'#fff')+';'
+      +'color:'+(active?'#fff':'#475569')+';';
+    return '<button onclick="setResourceFamily(\''+eA(code)+'\',\''+eA(f)+'\',\''+side+'\');renderCorr();'+refreshExpr+'" style="'+st+'" title="'+eH(f)+'">'+eH(f)+'</button>';
+  }).join('');
+  const reset=hasFamOverride
+    ? '<button onclick="setResourceFamily(\''+eA(code)+'\',\'\',\''+side+'\');renderCorr();'+refreshExpr+'" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
+    : '';
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:6px">'+btns+reset+'</div>';
+}
+
+function typeButtons(code, isTransv, hasOverride, side, refreshExpr){
+  const stT='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
+    +'border:2px solid '+(isTransv?'#0891b2':'#cbd5e1')+';background:'+(isTransv?'#e0f2fe':'#fff')+';color:'+(isTransv?'#0369a1':'#64748b')+';';
+  const stM='padding:6px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;'
+    +'border:2px solid '+(!isTransv?'#7c3aed':'#cbd5e1')+';background:'+(!isTransv?'#f5f3ff':'#fff')+';color:'+(!isTransv?'#6d28d9':'#64748b')+';';
+  const btnT='<button onclick="setResourceType(\''+eA(code)+'\',\'transversal\',\''+side+'\');'+refreshExpr+'" style="'+stT+'">📌 Transversale</button>';
+  const btnM='<button onclick="setResourceType(\''+eA(code)+'\',\'metier\',\''+side+'\');'+refreshExpr+'" style="'+stM+'">⚙️ Métier</button>';
+  const btnReset=hasOverride
+    ? '<button onclick="setResourceType(\''+eA(code)+'\',\'auto\',\''+side+'\');'+refreshExpr+'" style="grid-column:1/-1;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b">↺ Retour analyse automatique</button>'
+    : '';
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px">'+btnT+btnM+btnReset+'</div>';
+}
+
+// Éditeur de mots-clés inline, réutilisé par le panneau latéral et la modale.
+function kwEditor(code, side, refreshExpr){
+  const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
+  if(!rr) return '';
+  const hasKwOverride=!!(S.kwOverrides||{})[ovKey(side,code)];
+  const kwInputId='kw-panel-'+code.replace(/[^a-z0-9]/gi,'-');
+  const pills=(rr.mots_cles||[]).map(k=>{
+    const ek=eA(k);
+    return '<span style="display:inline-flex;align-items:center;gap:2px;background:#dbeafe;color:#1e40af;border-radius:12px;padding:2px 8px;font-size:10px;font-weight:600;margin:2px">'
+      +eH(k)
+      +'<button onclick="removeKwPanel(\''+eA(code)+'\',\''+side+'\',\''+ek+'\');'+refreshExpr+'" style="background:none;border:none;cursor:pointer;color:#1e40af;font-size:12px;padding:0 2px;line-height:1" title="Supprimer ce mot-clé">×</button>'
+      +'</span>';
+  }).join('');
+  const resetBtn = hasKwOverride
+    ? '<button onclick="resetKwPanel(\''+eA(code)+'\',\''+side+'\');'+refreshExpr+'" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b;cursor:pointer;margin-top:4px;display:block">↺ Rétablir mots-clés originaux</button>'
+    : '';
+  return '<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:4px">Mots-clés'
+    +(hasKwOverride?' <span style="font-size:9px;background:#dbeafe;color:#1d4ed8;border-radius:8px;padding:1px 5px">modifiés</span>':'')
+    +'</div>'
+    +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucun mot-clé</span>' )+'</div>'
+    +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
+      +'<input id="'+kwInputId+'-new" type="text" placeholder="Nouveau mot-clé…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
+      +'<button onclick="(function(){const inp=document.getElementById(\''+kwInputId+'-new\');const v=inp?inp.value.trim():\'\';if(!v)return;const rr2=('+( side==='new'?'S.new':'S.old' )+').find(x=>x.code===\''+eA(code)+'\');if(!rr2)return;rr2.mots_cles=[...(rr2.mots_cles||[]),v];S.kwOverrides[\''+eA(ovKey(side,code))+'\']=[...(rr2.mots_cles)];S.rows.forEach(row=>{const aff=\''+side+'\' ===\'new\'?row.newCode===\''+eA(code)+'\':row.oldCode===\''+eA(code)+'\';if(!aff)return;const rO3=S.old.find(x=>x.code===row.oldCode);const rN3=S.new.find(x=>x.code===row.newCode);if(rO3&&rN3)row.sharedKeywords=arrayOverlap(rO3.mots_cles||[],rN3.mots_cles||[]).join(\', \');});recomputeMatching();renderCorr();buildKwList();saveState();'+refreshExpr+';})()" style="padding:4px 8px;border-radius:5px;border:none;background:#1e3a5f;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
+    +'</div>'
+    +resetBtn;
+}
+
+// R16: éditeur de compétences ciblées inline — même patron que kwEditor,
+// mais les compétences n'entrent pas dans le calcul du score (pas de
+// recomputeMatching nécessaire après modification).
+function competenceEditor(code, side, refreshExpr){
+  const rr=(side==='new'?S.new:S.old).find(x=>x.code===code);
+  if(!rr) return '';
+  const hasOverride=!!(S.competenceOverrides||{})[ovKey(side,code)];
+  const compInputId='comp-panel-'+code.replace(/[^a-z0-9]/gi,'-');
+  const pills=(rr.competences||[]).map(c=>{
+    const ec=eA(c);
+    return '<div style="display:flex;align-items:flex-start;gap:4px;background:#f0fdf4;color:#166534;border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;margin:2px 0">'
+      +'<span style="flex:1">'+eH(c)+'</span>'
+      +'<button onclick="removeCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+ec+'\');'+refreshExpr+'" style="background:none;border:none;cursor:pointer;color:#166534;font-size:12px;padding:0 2px;line-height:1;flex-shrink:0" title="Supprimer cette compétence">×</button>'
+      +'</div>';
+  }).join('');
+  const resetBtn = hasOverride
+    ? '<button onclick="resetCompetencePanel(\''+eA(code)+'\',\''+side+'\');'+refreshExpr+'" style="font-size:9px;padding:2px 7px;border-radius:4px;border:1px solid #94a3b8;background:#f1f5f9;color:#64748b;cursor:pointer;margin-top:4px;display:block">↺ Rétablir compétences originales</button>'
+    : '';
+  return '<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:4px">Compétences ciblées'
+    +(hasOverride?' <span style="font-size:9px;background:#dcfce7;color:#166534;border-radius:8px;padding:1px 5px">modifiées</span>':'')
+    +'</div>'
+    +'<div style="margin-bottom:6px;min-height:20px">'+( pills||'<span style="font-size:10px;color:#94a3b8">Aucune compétence</span>' )+'</div>'
+    +'<div style="display:flex;gap:4px;align-items:flex-start;margin-top:4px">'
+      +'<input id="'+compInputId+'-new" type="text" placeholder="Nouvelle compétence…" style="flex:1;padding:4px 7px;border:1px solid #cbd5e1;border-radius:5px;font-size:10px"/>'
+      +'<button onclick="addCompetencePanel(\''+eA(code)+'\',\''+side+'\',\''+compInputId+'\');'+refreshExpr+'" style="padding:4px 8px;border-radius:5px;border:none;background:#166534;color:#fff;font-size:10px;cursor:pointer;white-space:nowrap">+ Ajouter</button>'
+    +'</div>'
+    +resetBtn;
+}
+
+// R22: modale d'édition rapide, limitée à UNE ressource (ancienne OU
+// nouvelle, jamais les deux) — remplace l'ancien comportement qui ouvrait
+// systématiquement le panneau de correspondance complet (score, validation,
+// alternatives) au clic sur une ligne. Déclenchée par un clic direct sur la
+// cellule de la ressource concernée (voir rowHtml/mkOldEntry).
+function openResourceEditModal(side, code){
+  renderResourceEditPanel(side, code);
   openModal('modal-resource-detail');
+}
+
+function renderResourceEditPanel(side, code){
+  const list = side==='old' ? S.old : S.new;
+  const r = list.find(x=>x.code===code);
+  const titleEl=document.getElementById('modal-resource-detail-title');
+  const bodyEl=document.getElementById('modal-resource-detail-body');
+  if(!bodyEl) return;
+  if(!r){ bodyEl.innerHTML='<p class="hint">Ressource introuvable.</p>'; return; }
+  if(titleEl) titleEl.textContent=r.code+' — '+r.titre;
+
+  const refreshExpr="renderResourceEditPanel('"+side+"','"+eA(code)+"')";
+  const isTransv = side==='new' ? resourceTypeInfo(code,null,null,r).isTransv
+    : (S.typeOverrides[ovKey('old',code)] ? S.typeOverrides[ovKey('old',code)]==='transversal' : isTransversalRes(r));
+  const hasTypeOverride=!!S.typeOverrides[ovKey(side,code)];
+  const hasFamOverride=!!S.familyOverrides[ovKey(side,code)];
+
+  bodyEl.innerHTML =
+    '<div class="detail-section">'
+      +'<div class="hint" style="margin-bottom:8px">'+(side==='new'?'Nouveau programme':'Ancien programme')+' · S'+eH(r.semestre)+(r.parcours_code?' · '+eH(displayParcours(r.parcours_code)):'')+'</div>'
+      +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:2px">Type pédagogique</div>'
+      +typeButtons(code,isTransv,hasTypeOverride,side,refreshExpr)
+      +'<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;margin-bottom:2px">Famille</div>'
+      +famButtons(code,resourceFamily(r),hasFamOverride,side,refreshExpr)
+      +kwEditor(code,side,refreshExpr)
+      +competenceEditor(code,side,refreshExpr)
+    +'</div>';
 }
 
 function selectCorrRow(newCode, showPlan=true){
@@ -4197,7 +4232,11 @@ function saveKwPanel(code, side, inputId, newCode){
   renderCorrDetail(newCode);
 }
 
-function resetKwPanel(code, side, newCode){
+// R23: ces 5 handlers ne rafraîchissent plus eux-mêmes une vue particulière —
+// le refresh est chaîné dans l'attribut onclick par l'appelant (kwEditor/
+// competenceEditor, via refreshExpr), pour rester utilisables aussi bien
+// depuis le panneau latéral que depuis la modale d'édition rapide.
+function resetKwPanel(code, side){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
@@ -4213,10 +4252,9 @@ function resetKwPanel(code, side, newCode){
   });
   recomputeMatching(); renderCorr(); buildKwList(); saveState();
   addHist(code,'kw-reset','Mots-clés rétablis à leur valeur originale');
-  renderCorrDetail(newCode);
 }
 
-function removeKwPanel(code, side, kwToRemove, newCode){
+function removeKwPanel(code, side, kwToRemove){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
@@ -4231,13 +4269,12 @@ function removeKwPanel(code, side, kwToRemove, newCode){
     if(rO2&&rN2) row.sharedKeywords=arrayOverlap(rO2.mots_cles||[],rN2.mots_cles||[]).join(', ');
   });
   recomputeMatching(); renderCorr(); buildKwList(); saveState();
-  renderCorrDetail(newCode);
 }
 
 // R16: compétences ciblées — même patron que les mots-clés (add/remove/reset),
 // mais sans impact sur S.rows/recomputeMatching (les compétences ne pèsent
 // pas dans le score).
-function addCompetencePanel(code, side, inputId, newCode){
+function addCompetencePanel(code, side, inputId){
   const inp=document.getElementById(inputId+'-new');
   const val=inp?inp.value.trim():'';
   if(!val) return;
@@ -4249,10 +4286,9 @@ function addCompetencePanel(code, side, inputId, newCode){
   r.competences=comps;
   renderCorr();
   addHist(code,'comp-edit','Compétence ajoutée : '+val);
-  renderCorrDetail(newCode);
 }
 
-function removeCompetencePanel(code, side, compToRemove, newCode){
+function removeCompetencePanel(code, side, compToRemove){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
@@ -4260,10 +4296,9 @@ function removeCompetencePanel(code, side, compToRemove, newCode){
   S.competenceOverrides[ovKey(side,code)]=comps;
   r.competences=comps;
   renderCorr();
-  renderCorrDetail(newCode);
 }
 
-function resetCompetencePanel(code, side, newCode){
+function resetCompetencePanel(code, side){
   const list=side==='new'?S.new:S.old;
   const r=list.find(x=>x.code===code);
   if(!r) return;
@@ -4272,7 +4307,6 @@ function resetCompetencePanel(code, side, newCode){
   r.competences=orig.slice();
   renderCorr();
   addHist(code,'comp-reset','Compétences rétablies à leur valeur originale');
-  renderCorrDetail(newCode);
 }
 
 // R20: tague chaque ressource avec son côté (old/new) pour pouvoir
@@ -4451,15 +4485,15 @@ function renderCorrEnhanced(){
     if(noMatch){
       const selected=S.selectedCorr===rN.code?' sel':'';
       const codeBadge=isTransv?'<span style="font-size:10px;color:#0891b2">Transversale</span> ':'<span style="font-size:10px;color:#7c3aed">Métier</span> ';
+      const famBadge=`<span class="fam">${eH(resourceFamily(rN))}</span>`;
       const toCreate=isToCreate(rN.code);
       const msgColor=toCreate?'#b45309':'#ea580c';
       const msgBg=toCreate?'#fffbeb':'#fff7ed';
       const msgBorder=toCreate?'#f59e0b':'#f97316';
       const msgText=toCreate?'🆕 Ressource à créer — aucun équivalent dans l\'ancien programme':'⚠️ Aucune ressource ancienne affectée — cliquez pour associer';
       return `<tr class="corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer;background:${msgBg};border-left:3px solid ${msgBorder}" onclick="openReplace('${eA(rN.code)}')">
-        <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
+        <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
         <td style="text-align:center;font-weight:700">${rN.semestre}</td>
-        <td><span class="fam">${eH(resourceFamily(rN))}</span></td>
         <td colspan="6" style="color:${msgColor};font-weight:700;font-size:12px">${msgText}</td>
         <td onclick="event.stopPropagation()"><div class="val-btn-wrap">
           <button class="btn-icon" title="Associer une ressource" onclick="openReplace('${eA(rN.code)}')">✏️</button>
@@ -4478,19 +4512,30 @@ function renderCorrEnhanced(){
     const autoVal=scoreRow?.autoValidated;
     const codeBadge=isTransv?'<span style="font-size:10px;color:#0891b2">Transversale</span> ':
       '<span style="font-size:10px;color:#7c3aed">Métier</span> ';
+    const famBadge=`<span class="fam">${eH(resourceFamily(rN))}</span>`;
     const alts=S.rows.filter(r=>r.newCode===rN.code&&r.rank>1&&r.rank<=3);
     const altHtml=alts.length?`<div style="margin-top:4px;font-size:10px;color:#64748b">Alt: ${alts.map(a=>`<span style="cursor:pointer;color:#2563eb" onclick="event.stopPropagation();openCompare('${eA(a.oldCode)}','${eA(rN.code)}')" title="${eA(a.oldTitle)}">${eA(a.oldCode)} ${(adjScore(a)).toFixed(0)}%</span>`).join(' · ')}</div>`:'';
     const selected=S.selectedCorr===rN.code?' sel':'';
     const extCodes2=S.extras?.[rN.code]||[];
-    const mkOldEntry=(code,isPrimary)=>{const er=S.old.find(r=>r.code===code)||{code,titre:''};const tip=eA(er.code);const borderStyle=isPrimary?'':'border-top:1px dashed #cbd5e1;margin-top:4px;padding-top:4px;';return`<div style="${borderStyle}"><span class="code" style="cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(er.code)}</span><br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH((er.titre||'').slice(0,45))}</span></div>`;};
+    // R21: mêmes badges type + famille que la nouvelle ressource, pour la
+    // cohérence demandée entre les deux cellules. Clic dédié sur la cellule
+    // (stopPropagation) pour ouvrir la modale d'édition de CETTE ressource
+    // ancienne précisément, indépendamment du clic sur la ligne.
+    const mkOldEntry=(code,isPrimary)=>{
+      const er=S.old.find(r=>r.code===code)||{code,titre:''};
+      const tip=eA(er.code);
+      const borderStyle=isPrimary?'':'border-top:1px dashed #cbd5e1;margin-top:4px;padding-top:4px;';
+      const oTransv=S.typeOverrides[ovKey('old',code)]?S.typeOverrides[ovKey('old',code)]==='transversal':isTransversalRes(er);
+      const oBadge=oTransv?'<span style="font-size:10px;color:#0891b2">Transversale</span> ':'<span style="font-size:10px;color:#7c3aed">Métier</span> ';
+      const oFam=`<span class="fam">${eH(resourceFamily(er))}</span>`;
+      return`<div style="${borderStyle}cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('old','${eA(code)}')"><span class="code" style="cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(er.code)}</span> ${oBadge}${oFam}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${tip}','old',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH((er.titre||'').slice(0,45))}</span></div>`;
+    };
     const oldCellHtml=mkOldEntry(rO.code,true)+extCodes2.map(ec=>mkOldEntry(ec,false)).join('');
-    return `<tr class="tr-${lvl} corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer" onclick="openResourceDetailModal('${eA(rN.code)}')">
-      <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.titre.slice(0,45))}</span></td>
+    return `<tr class="tr-${lvl} corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer" onclick="selectCorrRow('${eA(rN.code)}',false)">
+      <td style="cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px;cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.titre.slice(0,45))}</span></td>
       <td style="text-align:center;font-weight:700">${rN.semestre}</td>
-      <td><span class="fam">${eH(resourceFamily(rN))}</span></td>
       <td>${oldCellHtml}${altHtml}</td>
       <td style="text-align:center;font-weight:700">${rO.semestre}</td>
-      <td><span class="path-tag ${pathClass(rO.parcours_code)}">${eH(displayParcours(rO.parcours_code))}</span></td>
       <td>
         ${scoreBadge(score)}
         <div class="score-bar" style="width:80px"><div class="score-bar-fill" style="width:${score}%;background:${score>=55?'#16a34a':score>=35?'#d97706':score>=20?'#ea580c':'#94a3b8'}"></div></div>
@@ -4538,8 +4583,8 @@ function renderCorrEnhanced(){
           </div>
         </summary>
         <div class="tbl-wrap"><table><thead><tr>
-          <th>Nouvelle ressource</th><th>S</th><th>Famille</th>
-          <th>Ancienne ressource proposée</th><th>S</th><th>Parcours</th>
+          <th>Nouvelle ressource</th><th>S</th>
+          <th>Ancienne ressource proposée</th><th>S</th>
           <th>Score</th><th>Transition</th><th>Points communs</th><th>Validation</th><th></th>
         </tr></thead><tbody>${g.map(rowHtml).join('')}</tbody></table></div>
       </details>`;
