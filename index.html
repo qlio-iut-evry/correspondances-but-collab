@@ -4498,7 +4498,7 @@ function renderCorrEnhanced(){
       const msgBorder=toCreate?'#f59e0b':'#f97316';
       const msgText=toCreate?'🆕 Ressource à créer — aucun équivalent dans l\'ancien programme':'⚠️ Aucune ressource ancienne affectée — cliquez pour associer';
       return `<tr class="corr-row${selected}" data-new-code="${eA(rN.code)}" style="cursor:pointer;background:${msgBg};border-left:3px solid ${msgBorder}" onclick="openReplace('${eA(rN.code)}')">
-        <td><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
+        <td style="cursor:pointer" onclick="event.stopPropagation();openResourceEditModal('new','${eA(rN.code)}')"><span class="code code-new" style="cursor:help" onmouseenter="showResTooltip('${eA(rN.code)}','new',event)" onmousemove="moveResTooltip(event)" onmouseleave="hideResTooltip()">${eH(rN.code)}</span> ${codeBadge}${famBadge}<br><span style="font-size:11px">${eH(rN.titre.slice(0,45))}</span></td>
         <td style="text-align:center;font-weight:700">${rN.semestre}</td>
         <td colspan="6" style="color:${msgColor};font-weight:700;font-size:12px">${msgText}</td>
         <td onclick="event.stopPropagation()"><div class="val-btn-wrap">
