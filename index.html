@@ -5783,9 +5783,18 @@ async function createProject(name, oldProgramName, newProgramName) {
 }
 
 /** Sélectionne le projet actif et charge son état */
+// R48: loadProjectState() peut désormais échouer (réseau ou erreur Supabase)
+// et renvoie false dans ce cas plutôt que de laisser l'appelant continuer
+// sur un état non chargé. Ici, on revient à CURRENT_PROJECT_ID précédent en
+// cas d'échec — sinon l'ID du nouveau projet resterait actif alors que
+// l'écran affiche encore les données de l'ancien, et toute action de
+// l'utilisateur (valider, remplacer...) écrirait silencieusement dans le
+// mauvais projet.
 async function selectProject(projectId) {
+  const previousId = CURRENT_PROJECT_ID;
   CURRENT_PROJECT_ID = projectId;
-  await loadProjectState();
+  const ok = await loadProjectState();
+  if (!ok) { CURRENT_PROJECT_ID = previousId; return; }
   applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
@@ -5795,7 +5804,8 @@ async function selectProject(projectId) {
  * (bouton 🔄 dans l'en-tête), sans repasser par la modale de sélection. */
 async function reloadCurrentProject(){
   if (!CURRENT_PROJECT_ID) return;
-  await loadProjectState();
+  const ok = await loadProjectState();
+  if (!ok) return;
   applyProjectSettings((window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID));
   if (typeof showToast === 'function') showToast('🔄 Projet rechargé depuis Supabase', 'success');
 }
@@ -5848,21 +5858,46 @@ function renderProjectBadge() {
  * et remplace le S (state) local de l'appli.
  */
 async function loadProjectState() {
-  if (!CURRENT_PROJECT_ID) return;
+  if (!CURRENT_PROJECT_ID) return false;
 
-  const [ovRes, valRes, kwRes, famRes, typRes, compRes, extRes, histRes] = await Promise.all([
-    db.from('overrides')       .select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('validations')     .select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('kw_overrides')    .select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('family_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('type_overrides')  .select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('competence_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('extras')          .select('*').eq('project_id', CURRENT_PROJECT_ID),
-    db.from('history')         .select('*, profiles(display_name,email)')
-                               .eq('project_id', CURRENT_PROJECT_ID)
-                               .order('created_at', { ascending: false })
-                               .limit(200)
-  ]);
+  // R48: avant ce correctif, un échec réseau ici (fetch rejeté) faisait
+  // planter loadProjectState() avec une promesse rejetée non gérée : aucun
+  // message, l'action (sélection/rechargement de projet) échouait en
+  // silence. Une erreur Supabase renvoyée normalement ({data:null,error})
+  // était pire encore — le code traitait `data:null` comme "projet vide"
+  // (`ovRes.data || []`) et écrasait silencieusement l'état en mémoire par
+  // un état vide, donnant l'impression que toutes les correspondances
+  // avaient disparu. Les deux cas sont maintenant détectés explicitement et
+  // renvoient false sans toucher à S, en avertissant l'utilisateur.
+  let ovRes, valRes, kwRes, famRes, typRes, compRes, extRes, histRes;
+  try {
+    [ovRes, valRes, kwRes, famRes, typRes, compRes, extRes, histRes] = await Promise.all([
+      db.from('overrides')       .select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('validations')     .select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('kw_overrides')    .select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('family_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('type_overrides')  .select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('competence_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('extras')          .select('*').eq('project_id', CURRENT_PROJECT_ID),
+      db.from('history')         .select('*, profiles(display_name,email)')
+                                 .eq('project_id', CURRENT_PROJECT_ID)
+                                 .order('created_at', { ascending: false })
+                                 .limit(200)
+    ]);
+  } catch (e) {
+    console.error('[Sync] loadProjectState: échec réseau', e);
+    if (typeof showToast === 'function') showToast('⚠️ Impossible de charger le projet (problème réseau) — réessayez', 'error');
+    return false;
+  }
+
+  const failed = [['overrides',ovRes],['validations',valRes],['kw_overrides',kwRes],['family_overrides',famRes],
+    ['type_overrides',typRes],['competence_overrides',compRes],['extras',extRes],['history',histRes]]
+    .find(([,r]) => r?.error);
+  if (failed) {
+    console.error('[Sync] loadProjectState: erreur sur', failed[0], failed[1].error);
+    if (typeof showToast === 'function') showToast(`⚠️ Erreur de chargement du projet (${failed[0]}) — état conservé, réessayez`, 'error');
+    return false;
+  }
 
   // Reconstruire S.overrides
   S.overrides = {};
@@ -5922,6 +5957,7 @@ async function loadProjectState() {
 
   console.log('[Sync] État chargé depuis Supabase');
   if (S.loaded) { recomputeMatching(); renderCorr(); updateStats(); }
+  return true;
 }
 
 // ── Sauvegarde vers Supabase ──────────────────────────────────────────────────
