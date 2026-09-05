@@ -2218,6 +2218,7 @@ function refreshDataInfo(){
   } else document.getElementById('prog-new-stats').textContent='';
 }
 function onDataLoaded(hidePreCompute=false){
+  restoreUndoStack();
   document.getElementById('parcBar').style.display='';
   document.getElementById('statsBar').style.display='';
   document.getElementById('data-info').style.display='';
@@ -3374,6 +3375,36 @@ function addHist(code,action,comment){
   if(S.history.length>300) S.history.pop();
   saveState();
 }
+// R51: la pile d'annulation ne survivait pas à un rechargement de page
+// (F5 accidentel) — contrairement à toutes les autres modifications
+// (overrides, validations, historique...), qui sont soit synchronisées
+// vers Supabase soit dans le S.history persisté, S.undoStack ne vivait
+// qu'en mémoire. Clé dédiée dans localStorage (indépendante du mécanisme
+// saveState()/STORAGE_KEY, neutralisé par la couche de synchro — voir
+// patchAppFunctions), scopée par projet pour qu'un undo laissé sur un
+// projet ne s'applique jamais par erreur à un autre après changement de
+// projet (CURRENT_PROJECT_ID vient de supabase-sync.js, mais reste
+// accessible ici : les scripts classiques d'une même page partagent leur
+// portée de haut niveau au moment de l'exécution).
+function undoStorageKey(){
+  return 'qlio_undo_stack_v1:' + (typeof CURRENT_PROJECT_ID!=='undefined' && CURRENT_PROJECT_ID ? CURRENT_PROJECT_ID : 'local');
+}
+function persistUndoStack(){
+  try{ localStorage.setItem(undoStorageKey(), JSON.stringify(S.undoStack||[])); }catch(e){}
+}
+// Restaure la pile depuis localStorage — appelé au chargement initial des
+// données (mode local) et après la sélection d'un projet (mode connecté),
+// jamais depuis loadProjectState() elle-même : cette dernière est aussi
+// invoquée à chaque changement distant reçu en temps réel (onRemoteChange),
+// et réinitialiser la pile d'un utilisateur à chaque action d'un collègue
+// lui ferait perdre ses propres annulations en cours.
+function restoreUndoStack(){
+  try{
+    const raw=localStorage.getItem(undoStorageKey());
+    S.undoStack = raw ? JSON.parse(raw) : [];
+  }catch(e){ S.undoStack=[]; }
+  updateUndoBtn();
+}
 function saveSnapshot(){
   // Sauvegarde un instantané de l'état pour permettre l'annulation
   if(!S.undoStack) S.undoStack=[];
@@ -3385,6 +3416,7 @@ function saveSnapshot(){
     typeOverrides:S.typeOverrides||{}
   })));
   if(S.undoStack.length>20) S.undoStack.shift();
+  persistUndoStack();
   updateUndoBtn();
 }
 function undoLast(){
@@ -3395,6 +3427,7 @@ function undoLast(){
   S.extras=snap.extras;
   S.familyOverrides=snap.familyOverrides||{};
   S.typeOverrides=snap.typeOverrides||{};
+  persistUndoStack();
   recomputeMatching();updateStats();renderCorr();updateUndoBtn();
   addHist('ALL','modifie','↩ Annulation de la dernière action');
 }
@@ -5815,6 +5848,11 @@ async function selectProject(projectId) {
   applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
+  // R51: pile d'annulation propre à ce projet (clé localStorage scopée par
+  // CURRENT_PROJECT_ID) — volontairement pas dans loadProjectState() elle-
+  // même, qui est aussi appelée à chaque changement distant reçu en temps
+  // réel (onRemoteChange) et ne doit pas réinitialiser l'undo en cours.
+  if (typeof restoreUndoStack === 'function') restoreUndoStack();
 }
 
 /** Recharge l'état du projet actuellement sélectionné depuis Supabase
