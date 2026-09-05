@@ -2846,6 +2846,7 @@ function renderReplaceList(){
       <option value="affectees"${ui.assigned==='affectees'?' selected':''}>Déjà affectées seulement</option>
     </select>
     <div style="display:flex;gap:8px;margin-left:auto">
+      ${(newCode in S.overrides)?'<button class="btn btn-outline btn-sm" onclick="resetReplaceTarget()" style="color:#0891b2;border-color:#67e8f9">↺ Revenir au calcul automatique</button>':''}
       <button class="btn btn-outline btn-sm" onclick="markToCreate()" style="color:#b45309;border-color:#fde68a">🆕 À créer — aucun équivalent</button>
       <button class="btn btn-outline btn-sm" onclick="clearReplaceTarget()" style="color:#dc2626;border-color:#fca5a5">🗑 Aucune correspondance — laisser vide</button>
     </div>
@@ -2877,6 +2878,23 @@ function renderReplaceList(){
 function clearReplaceTarget(){
   document.querySelectorAll('#modal-replace-body input[type=checkbox]:checked').forEach(cb=>{cb.checked=false;});
   confirmReplace();
+}
+
+// R29: retire l'override manuel de la ressource ciblée (refus explicite
+// null, "à créer", ou affectation manuelle) pour la rendre à nouveau
+// éligible au calcul automatique. Avant ce bouton, seul "🗑️ Tout vider"
+// (clearAllMatching) permettait de revenir à cet état "éligible", mais en
+// réinitialisant TOUT le tableau — aucun moyen de le faire ressource par
+// ressource, ce qui bloquait silencieusement "⚡ Calculer" sur toute
+// ressource ayant hérité d'un refus explicite (le sien ou celui laissé par
+// la résolution d'une collision sur une autre ressource).
+function resetReplaceTarget(){
+  const nc=S.replaceTarget; if(!nc) return;
+  saveSnapshot();
+  delete S.overrides[nc];
+  if(S.extras) delete S.extras[nc];
+  addHist(nc,'modifie','Retour au calcul automatique');
+  recomputeMatching(); updateStats(); renderCorr(); closeModal('modal-replace');
 }
 
 // R11: marque la ressource cible comme "à créer" (aucun équivalent ancien
@@ -2959,13 +2977,17 @@ function applyReplace(nc, checked, conflicts, mode){
 
   (mode==='deassign'?conflicts:[]).forEach(c=>{
     const other=c.otherNewCode;
-    // La ressource "other" perdait c.oldCode qu'elle tenait automatiquement ou
-    // manuellement — dans les deux cas elle devient explicitement sans
-    // correspondance (S.overrides[other]=null), pas seulement si elle avait
-    // un override manuel dessus.
-    S.overrides[other]=null;
+    // R29: "other" perd c.oldCode suite à VOTRE choix sur une AUTRE ressource
+    // (nc), pas suite à une décision prise sur "other" elle-même — retirer
+    // l'override (et non le mettre à null) pour qu'elle redevienne éligible
+    // au prochain ⚡ Calculer. Un null explicite reste réservé au cas où
+    // VOUS cliquez "Aucune correspondance — laisser vide" sur la ressource
+    // elle-même (bouton clearReplaceTarget/applyReplace ci-dessous), qui
+    // reste protégé d'un recalcul global tant que vous ne le levez pas via
+    // "↺ Revenir au calcul automatique".
+    delete S.overrides[other];
     if(S.extras[other]) S.extras[other]=S.extras[other].filter(x=>x!==c.oldCode);
-    addHist(other,'modifie',`Désaffectée de ${c.oldCode} (réaffectée à ${nc})`);
+    addHist(other,'modifie',`Désaffectée de ${c.oldCode} (réaffectée à ${nc}) — redevient éligible au calcul automatique`);
   });
 
   if(shared){
