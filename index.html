@@ -846,63 +846,77 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
       <h3 style="color:#1e3a5f;margin:0 0 6px">1. Objectif de l'application</h3>
       <p>Accompagner la transition du programme <strong>QLIO 2022</strong> (89 ressources, 4 parcours) vers le programme <strong>IMP 2026</strong> (76 ressources, parcours unique). Pour chaque nouvelle ressource IMP, l'application propose l'ancienne ressource QLIO la plus proche, calcule un <strong>score de correspondance 0&ndash;100</strong>, et permet &agrave; l'&eacute;quipe p&eacute;dagogique de valider, modifier ou rejeter chaque association.</p>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">2. Types p&eacute;dagogiques : Transversale / M&eacute;tier</h3>
-      <p>Chaque ressource re&ccedil;oit un type calcul&eacute; automatiquement &agrave; partir du nombre de comp&eacute;tences cibl&eacute;es dans sa fiche :</p>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">2. Types pédagogiques : Transversale / Métier</h3>
+      <p>Chaque ressource reçoit un type calculé automatiquement à partir de sa position dans son semestre :</p>
       <ul style="margin:4px 0;padding-left:18px">
-        <li><strong style="color:#1d4ed8">Transversale</strong> &mdash; ressource &agrave; port&eacute;e g&eacute;n&eacute;rale (langues, maths, d&eacute;veloppement personnel&hellip;). Codes R{sem}.01&ndash;06 ou &ge; 3 comp&eacute;tences en S1-S2, &ge; 4 comp&eacute;tences en S3-S6.</li>
-        <li><strong style="color:#7e22ce">M&eacute;tier</strong> &mdash; ressource sp&eacute;cialis&eacute;e (production, qualit&eacute;, logistique&hellip;). 1&ndash;2 comp&eacute;tences, ou num&eacute;rotation &gt; 06.</li>
+        <li><strong style="color:#1d4ed8">Transversale</strong> — les 6 premières ressources d'un semestre (5 pour S6), format tronc commun <code>R{sem}.{num}</code> avec num ≤ 6 (≤ 5 pour S6).</li>
+        <li><strong style="color:#7e22ce">Métier</strong> — toutes les autres, <strong>et systématiquement toute ressource propre à un parcours</strong> (code contenant un acronyme de parcours, ex. <code>R3.MTD.13</code>), quel que soit son contenu.</li>
       </ul>
-      <p style="color:#dc2626;font-weight:600;margin-top:4px">&#9888;&#65039; R&egrave;gle absolue : une ressource <em>transversale</em> ne peut jamais &ecirc;tre appari&eacute;e avec une ressource <em>m&eacute;tier</em> &rarr; score forc&eacute; &agrave; 0, paire exclue de l'affectation automatique.</p>
-      <p style="font-size:12px;color:#475569">Le type peut &ecirc;tre corrig&eacute; manuellement dans le panneau de d&eacute;tail (zone &#9999;&#65039; Modifier), pour la nouvelle <strong>et</strong> pour l'ancienne ressource. La correction entra&icirc;ne un recalcul imm&eacute;diat.</p>
+      <p style="color:#dc2626;font-weight:600;margin-top:4px">⚠️ Règle absolue : une ressource <em>transversale</em> ne peut jamais être appariée avec une ressource <em>métier</em> → score forcé à 0, paire exclue de l'affectation automatique.</p>
+      <p style="font-size:12px;color:#475569">Le type peut être corrigé manuellement — dans le panneau latéral, la modale d'édition rapide (clic sur une ressource), ou l'onglet <strong>🧭 Contrôle ressources</strong> — pour la nouvelle <strong>et</strong> l'ancienne ressource. Un override manuel de type rouvre immédiatement toutes les paires qu'il rend compatibles, y compris pour un recalcul (⚡ Calculer) ultérieur.</p>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">3. Familles p&eacute;dagogiques</h3>
-      <p>6 familles regroupent les ressources par domaine. M&ecirc;me famille = 100 pts sur le crit&egrave;re Famille ; familles diff&eacute;rentes = 0.</p>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">3. Familles pédagogiques</h3>
+      <p><strong>8 familles</strong> regroupent les ressources par domaine. Même famille = 100 pts sur le critère Famille ; famille différente (mais type compatible, cf. §2) = 50 pts.</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-top:6px">
-        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Langue &amp; Communication</strong><br><span style="font-size:10px;opacity:.8">Langues, communication, expression&hellip;</span></div>
-        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Num&eacute;rique &amp; Math&eacute;matiques</strong><br><span style="font-size:10px;opacity:.8">Statistiques, info, outils num&eacute;riques&hellip;</span></div>
-        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>D&eacute;veloppement personnel</strong><br><span style="font-size:10px;opacity:.8">PPP, autonomie, projet professionnel&hellip;</span></div>
-        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Gestion &amp; Entreprise</strong><br><span style="font-size:10px;opacity:.8">Finance, management, droit, achats&hellip;</span></div>
-        <div style="background:#fef9c3;color:#a16207;padding:5px 10px;border-radius:8px"><strong>Production &amp; Flux</strong><br><span style="font-size:10px;opacity:.8">Logistique, supply chain, ordonnancement&hellip;</span></div>
-        <div style="background:#fef9c3;color:#a16207;padding:5px 10px;border-radius:8px"><strong>Qualit&eacute; &amp; Am&eacute;lioration</strong><br><span style="font-size:10px;opacity:.8">Lean, 5S, 8D, m&eacute;trologie, SPC&hellip;</span></div>
+        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Langue & Communication</strong><br><span style="font-size:10px;opacity:.8">Langues, communication, expression…</span></div>
+        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Numérique & Mathématiques</strong><br><span style="font-size:10px;opacity:.8">Statistiques, info, outils numériques…</span></div>
+        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Développement personnel</strong><br><span style="font-size:10px;opacity:.8">PPP, autonomie, projet professionnel…</span></div>
+        <div style="background:#e0f2fe;color:#0369a1;padding:5px 10px;border-radius:8px"><strong>Gestion & Entreprise</strong><br><span style="font-size:10px;opacity:.8">Finance, droit, achats, connaissance entreprise…</span></div>
+        <div style="background:#fef9c3;color:#a16207;padding:5px 10px;border-radius:8px"><strong>Production & Flux</strong><br><span style="font-size:10px;opacity:.8">Logistique, supply chain, ordonnancement…</span></div>
+        <div style="background:#fef9c3;color:#a16207;padding:5px 10px;border-radius:8px"><strong>Qualité & Amélioration</strong><br><span style="font-size:10px;opacity:.8">Lean, 5S, 8D, métrologie, SPC…</span></div>
+        <div style="background:#e0e7ff;color:#4338ca;padding:5px 10px;border-radius:8px"><strong>Transformation digitale</strong><br><span style="font-size:10px;opacity:.8">Détectée automatiquement pour les ressources du parcours MTD</span></div>
+        <div style="background:#e0e7ff;color:#4338ca;padding:5px 10px;border-radius:8px"><strong>Management Production</strong><br><span style="font-size:10px;opacity:.8">Détectée automatiquement pour les ressources du parcours MP</span></div>
       </div>
-      <p style="font-size:12px;color:#475569;margin-top:6px">La famille peut &ecirc;tre corrig&eacute;e dans le panneau de d&eacute;tail pour la nouvelle <strong>et</strong> pour l'ancienne ressource. Toute modification recalcule imm&eacute;diatement tous les scores.</p>
+      <p style="font-size:12px;color:#475569;margin-top:6px">La famille peut être corrigée dans le panneau latéral, la modale d'édition rapide, ou l'onglet <strong>🧭 Contrôle ressources</strong>, pour la nouvelle <strong>et</strong> l'ancienne ressource. Toute modification recalcule immédiatement tous les scores. Un override manuel reste toujours prioritaire sur la détection automatique (y compris pour Transformation digitale / Management Production).</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">4. Calcul du score de correspondance</h3>
-      <p>Le score est une <strong>moyenne pond&eacute;r&eacute;e de 4 crit&egrave;res</strong> (0&ndash;100 chacun), avec des bonus :</p>
+      <p>Le score est une <strong>moyenne pondérée de 6 critères</strong> (0–100 chacun) :</p>
       <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
         <thead><tr style="background:#f1f5f9">
-          <th style="padding:5px 8px;text-align:left">Crit&egrave;re</th>
-          <th style="padding:5px 8px;text-align:center">Poids d&eacute;faut</th>
-          <th style="padding:5px 8px;text-align:left">Comment calcul&eacute;</th>
+          <th style="padding:5px 8px;text-align:left">Critère</th>
+          <th style="padding:5px 8px;text-align:center">Poids défaut</th>
+          <th style="padding:5px 8px;text-align:left">Comment calculé</th>
         </tr></thead>
         <tbody>
           <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:5px 8px"><strong>Code</strong></td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">30 %</td>
+            <td style="padding:5px 8px">100 pts si les deux ressources partagent le même numéro en fin de code (ex. R1.04 ↔ R2.04), sinon 0.</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0;background:#f8fafc">
             <td style="padding:5px 8px"><strong>Titre</strong></td>
-            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">40 %</td>
-            <td style="padding:5px 8px">Chevauchement Dice des mots significatifs entre les deux titres. Si score titre &ge; 50 % &rarr; bonus automatique&nbsp;; si &ge; 70 % &rarr; score final forc&eacute; &agrave; &ge; 90.</td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">20 %</td>
+            <td style="padding:5px 8px">Chevauchement des mots significatifs entre les deux titres. Si ce sous-score atteint 70 % → score final composite forcé à ≥ 90.</td>
+          </tr>
+          <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:5px 8px"><strong>Texte</strong></td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">20 %</td>
+            <td style="padding:5px 8px">Chevauchement du contenu textuel complet (titre + descriptif + compétences ciblées).</td>
           </tr>
           <tr style="border-top:1px solid #e2e8f0;background:#f8fafc">
             <td style="padding:5px 8px"><strong>Famille</strong></td>
-            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">25 %</td>
-            <td style="padding:5px 8px">M&ecirc;me famille p&eacute;dagogique = 100 pts, familles diff&eacute;rentes = 0. Modifiable dans le panneau de d&eacute;tail.</td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">15 %</td>
+            <td style="padding:5px 8px">Même famille = 100, famille différente = 50 (voir §3). Modifiable dans le panneau latéral / la modale d'édition / l'onglet Contrôle ressources.</td>
           </tr>
           <tr style="border-top:1px solid #e2e8f0">
             <td style="padding:5px 8px"><strong>Semestre</strong></td>
-            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">20 %</td>
-            <td style="padding:5px 8px">M&ecirc;me semestre = 100 &middot; &eacute;cart 1 = 60 &middot; &eacute;cart 2 = 30 &middot; &eacute;cart &ge; 3 = 10. Pour les transversales, tout &eacute;cart = 0.</td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">10 %</td>
+            <td style="padding:5px 8px">Même semestre = 100 · écart 1 = 80 · écart 2 = 60 · écart 3 = 40 · écart ≥ 4 = 20.</td>
           </tr>
           <tr style="border-top:1px solid #e2e8f0;background:#f8fafc">
-            <td style="padding:5px 8px"><strong>Mots-cl&eacute;s</strong></td>
-            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">15 %</td>
-            <td style="padding:5px 8px">Nombre de mots-cl&eacute;s partag&eacute;s (normalis&eacute;s&nbsp;: minuscules, sans accents) &times; 20, plafonn&eacute; &agrave; 100. Modifiables dans le panneau de d&eacute;tail.</td>
+            <td style="padding:5px 8px"><strong>Mots-clés</strong></td>
+            <td style="padding:5px 8px;text-align:center;font-weight:700;color:#1d4ed8">5 %</td>
+            <td style="padding:5px 8px">Nombre de mots-clés partagés (normalisés : minuscules, sans accents) × 20, plafonné à 100. Modifiables dans le panneau latéral.</td>
           </tr>
         </tbody>
       </table>
       <p style="margin-top:8px;font-size:12px">
-        <strong>Bonus +5 pts</strong> si les deux ressources ont le m&ecirc;me num&eacute;ro dans leur semestre (ex. R1.04 &harr; R2.04).<br>
-        <strong>Seuil minimum</strong> : toute paire avec score &lt; 25 est ignor&eacute;e par l'algorithme d'affectation automatique.<br>
-        <strong>Incompatibilit&eacute; Transversale &harr; M&eacute;tier</strong> : score forc&eacute; &agrave; 0.
+        <strong>Bonus validation +20 pts</strong> : une paire explicitement validée (✓) voit son score augmenté de 20 pts (plafonné à 100).<br>
+        <strong>Seuil minimum</strong> : toute paire avec score &lt; 25 est ignorée par l'algorithme d'affectation automatique.<br>
+        <strong>Incompatibilité Transversale ↔ Métier</strong> : score forcé à 0, quels que soient les autres critères.<br>
+        <strong>Partage exceptionnel (extras)</strong> : quand une nouvelle ressource a plusieurs anciennes ressources associées, le score affiché est la <strong>moyenne</strong> des scores individuels de chaque paire (voir §8bis).
       </p>
+      <p style="font-size:12px;color:#475569">Ces poids par défaut correspondent au profil <strong>Équilibre</strong> — voir §12 pour les 6 profils disponibles et la personnalisation.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">5. Niveaux de score</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -917,32 +931,61 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
       <h3 style="color:#1e3a5f;margin:16px 0 6px">6. Algorithme d'affectation (bijection gloutonne)</h3>
       <p>L'algorithme garantit qu'une ancienne ressource ne peut &ecirc;tre affect&eacute;e qu'&agrave; <em>une seule</em> nouvelle ressource :</p>
       <ol style="margin:4px 0;padding-left:20px">
-        <li><strong>Priorit&eacute; absolue aux overrides manuels</strong> &mdash; toute association choisie manuellement est affect&eacute;e en premier et bloque la ressource ancienne correspondante.</li>
-        <li><strong>Calcul de toutes les paires &eacute;ligibles</strong> &mdash; score &ge; 25 ET types compatibles (transv.&harr;transv. ou m&eacute;tier&harr;m&eacute;tier), tri&eacute;es par score d&eacute;croissant.</li>
-        <li><strong>Affectation gloutonne</strong> &mdash; on prend la meilleure paire disponible, on marque les deux ressources comme &laquo;&nbsp;utilis&eacute;es&nbsp;&raquo;, on r&eacute;p&egrave;te jusqu'&agrave; &eacute;puisement.</li>
-        <li><strong>Fallback</strong> &mdash; les nouvelles ressources sans affectation re&ccedil;oivent la meilleure ancienne disponible de m&ecirc;me type, m&ecirc;me si le score est faible.</li>
-        <li><strong>Override null</strong> &mdash; si l'enseignant a explicitement refus&eacute; toute association, la ressource est exclue de tout appariement automatique.</li>
+        <li><strong>Priorité absolue aux overrides manuels</strong> — toute association choisie manuellement (⊃ les paires validées ✓) est affectée en premier et bloque la ressource ancienne correspondante.</li>
+        <li><strong>Protection des extras</strong> — les anciennes ressources attachées en partage exceptionnel (§8bis) sont elles aussi marquées « utilisées » avant la passe automatique, pour ne jamais être redistribuées ailleurs par erreur.</li>
+        <li><strong>Calcul de toutes les paires éligibles</strong> — score ≥ 25 ET types compatibles (transv.↔transv. ou métier↔métier), triées par score décroissant.</li>
+        <li><strong>Affectation gloutonne</strong> — on prend la meilleure paire disponible, on marque les deux ressources comme « utilisées », on répète jusqu'à épuisement.</li>
+        <li><strong>Fallback</strong> — les nouvelles ressources sans affectation reçoivent la meilleure ancienne disponible de même type, même si le score est faible (mais ≥ 25).</li>
+        <li><strong>Override null</strong> — si l'enseignant a explicitement refusé toute association (❌), la ressource est exclue de tout appariement automatique.</li>
       </ol>
       <p style="background:#fef9c3;border-left:3px solid #a16207;padding:6px 10px;font-size:12px;margin-top:6px"><strong>&#9888; Collision</strong> : si deux nouvelles ressources r&eacute;clament la m&ecirc;me ancienne via des overrides manuels, la premi&egrave;re conserve l'association et la seconde re&ccedil;oit le badge <em>&laquo;&nbsp;&#9888; Affect&eacute;e plusieurs fois&nbsp;&raquo;</em>. L'application reste stable &mdash; les deux ressources restent visibles.</p>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">7. Tableau de correspondances &mdash; interface principale</h3>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">7. Tableau de correspondances — interface principale</h3>
+      <p><strong>Bandeau de 6 indicateurs</strong> en haut du tableau (se recalcule selon les filtres actifs) :</p>
+      <ul style="margin:4px 0;padding-left:18px;font-size:12px">
+        <li><strong>Correspondances affichées</strong> — nombre de lignes visibles avec les filtres courants.</li>
+        <li><strong>Score moyen</strong> — moyenne des scores affichés.</li>
+        <li><strong>Sans correspondance</strong> — nouvelles ressources sans aucune ancienne associée.</li>
+        <li><strong>Changement pair/impair</strong> — part des correspondances qui passent d'un semestre pair à un semestre impair ou l'inverse (S2→S1, S4→S3…). Un changement S4→S2 n'est <em>pas</em> compté : il n'a pas d'impact sur la charge calendaire de l'enseignant, contrairement à un changement de parité.</li>
+        <li><strong>Anciennes affectées ≥ 2 fois</strong> — anciennes ressources réutilisées sur plusieurs nouvelles ressources (collision ou partage exceptionnel volontaire).</li>
+        <li><strong>Taux de validation</strong> — part des correspondances affichées marquées ✓ Validée.</li>
+      </ul>
+      <p style="margin:6px 0;font-size:12px"><strong>Chips de semestre</strong> — un bouton par semestre affiche « S{n} · {nb ressources nouvelles} / {nb ressources anciennes} » pour filtrer rapidement.</p>
       <ul style="margin:4px 0;padding-left:18px">
         <li><strong>Filtres en haut</strong> : parcours, semestre, famille, type, statut de validation, niveau de score.</li>
-        <li><strong>Clic sur une ligne</strong> &rarr; panneau de d&eacute;tail &agrave; droite.</li>
-        <li><strong>Bouton &#9998;</strong> sur une ligne &rarr; modale pour choisir manuellement une ancienne ressource (liste avec scores et d&eacute;tails).</li>
-        <li><strong>Boutons &#9989; / &#128260; / &#10060;</strong> directement sur chaque ligne &rarr; valider / marquer &agrave; revoir / refuser la correspondance.</li>
-        <li><strong>Survol du code ou du titre</strong> &rarr; infobulle avec tous les d&eacute;tails de la ressource.</li>
-        <li><strong>Barre de progression</strong> en haut&nbsp;: nombre de correspondances valid&eacute;es / &agrave; revoir / en attente.</li>
+        <li><strong>Clic sur une ligne</strong> → ouvre la modale de détail / comparaison de la ressource.</li>
+        <li><strong>Icônes d'action sur chaque ligne</strong> :
+          <ul style="margin:4px 0;padding-left:18px">
+            <li><strong>✓</strong> — Valider / dévalider (bascule). Un second clic sur une correspondance déjà validée retire la validation.</li>
+            <li><strong>×</strong> — Refuser : supprime réellement la correspondance (la ressource redevient « sans correspondance », exclue de l'automatique jusqu'à nouvelle affectation).</li>
+            <li><strong>🔬</strong> — Comparer : ouvre une vue de comparaison en lecture seule entre les deux fiches.</li>
+            <li><strong>✎</strong> — Remplacer : ouvre la modale d'association manuelle (voir §8bis).</li>
+          </ul>
+        </li>
+        <li><strong>Survol du code ou du titre</strong> → infobulle avec tous les détails de la ressource.</li>
       </ul>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">8. Panneau de d&eacute;tail et zone &#9999;&#65039; Modifier</h3>
-      <p>Le panneau lat&eacute;ral s'ouvre en cliquant sur une ligne. Il affiche le score global et les boutons de validation, puis propose une zone <strong>&#9999;&#65039; Modifier</strong> pour &eacute;diter <em>la nouvelle ressource</em> <strong>et</strong> <em>l'ancienne ressource</em> correspondante&nbsp;:</p>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">8. Panneau de détail et modale d'édition rapide</h3>
+      <p>Deux surfaces distinctes, accessibles depuis le tableau :</p>
+      <p style="margin:6px 0"><strong>Panneau latéral</strong> (clic sur une ligne) — affiche le score global, les boutons de validation, et les 5 meilleures ressources anciennes alternatives avec leur score, pour comparer rapidement sans quitter la vue.</p>
+      <p style="margin:6px 0"><strong>Modale d'édition rapide</strong> (clic direct sur le code ou le titre d'<em>une</em> ressource, ancienne ou nouvelle) — édite cette ressource précise :</p>
       <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:12px;margin-top:6px">
-        <p style="margin:0 0 8px"><strong>Type p&eacute;dagogique</strong> &mdash; deux boutons <span style="background:#dbeafe;color:#1d4ed8;padding:1px 7px;border-radius:4px;font-size:11px">Transversale</span> / <span style="background:#ede9fe;color:#7e22ce;padding:1px 7px;border-radius:4px;font-size:11px">M&eacute;tier</span>. Le bouton actif est en surbrillance fonc&eacute;e. Un clic force le type et recalcule imm&eacute;diatement.</p>
-        <p style="margin:0 0 8px"><strong>Famille p&eacute;dagogique</strong> &mdash; grille de 6 boutons correspondant aux 6 familles. Le bouton actif est en bleu fonc&eacute;. Un clic change la famille et recalcule imm&eacute;diatement.</p>
-        <p style="margin:0"><strong>Mots-cl&eacute;s</strong> &mdash; pills cliquables avec &times; pour supprimer un mot-cl&eacute; individuellement. Champ texte + bouton <em>+ Ajouter</em> pour en ajouter un nouveau. Bouton <em>&#8634; R&eacute;tablir mots-cl&eacute;s originaux</em> visible si des modifications ont &eacute;t&eacute; faites. Toute modification se propage imm&eacute;diatement aux calculs de score et aux recherches par mots-cl&eacute;s.</p>
+        <p style="margin:0 0 8px"><strong>Type pédagogique</strong> — deux boutons <span style="background:#dbeafe;color:#1d4ed8;padding:1px 7px;border-radius:4px;font-size:11px">Transversale</span> / <span style="background:#ede9fe;color:#7e22ce;padding:1px 7px;border-radius:4px;font-size:11px">Métier</span>. Le bouton actif est en surbrillance foncée. Un clic force le type et recalcule immédiatement.</p>
+        <p style="margin:0 0 8px"><strong>Famille pédagogique</strong> — grille de 8 boutons correspondant aux 8 familles (§3). Le bouton actif est en bleu foncé. Un clic change la famille et recalcule immédiatement.</p>
+        <p style="margin:0 0 8px"><strong>Mots-clés</strong> — pills cliquables avec × pour supprimer un mot-clé individuellement. Champ texte + bouton <em>+ Ajouter</em> pour en ajouter un nouveau. Bouton <em>↺ Rétablir mots-clés originaux</em> visible si des modifications ont été faites.</p>
+        <p style="margin:0"><strong>Compétences ciblées</strong> — même principe que les mots-clés : pills supprimables, champ d'ajout, bouton <em>↺ Rétablir compétences originales</em>. Utile notamment pour retirer une entrée erronée issue de l'extraction PDF (ex. « Portfolio », « Stage » — ce ne sont pas des compétences).</p>
       </div>
-      <p style="font-size:12px;color:#475569;margin-top:6px">Un badge bleu <em>modifi&eacute;</em> signale les champs qui diff&egrave;rent de la valeur d'origine. Les overrides (type, famille, mots-cl&eacute;s) persistent lors des recalculs ult&eacute;rieurs.</p>
+      <p style="font-size:12px;color:#475569;margin-top:6px">Un badge vert <em>modifiées</em> signale les champs qui diffèrent de la valeur d'origine. Tous ces overrides (type, famille, mots-clés, compétences) sont sauvegardés en base quel que soit le point d'entrée utilisé (modale d'édition, onglet Contrôle ressources), persistent lors des recalculs ultérieurs, et sont prioritaires sur la détection automatique.</p>
+
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">8bis. Association manuelle et partage exceptionnel</h3>
+      <p>L'icône <strong>✎ Remplacer</strong> ouvre une modale listant toutes les ressources anciennes, triées par score décroissant, filtrables par semestre / type / disponibilité :</p>
+      <ul style="margin:4px 0;padding-left:18px;font-size:12px">
+        <li><strong>Cases à cocher multiples</strong> — cocher plusieurs anciennes ressources les associe toutes à la même nouvelle ressource. La <strong>première cochée</strong> devient la correspondance principale, les suivantes deviennent des <strong>extras</strong> (partage exceptionnel secondaire) — utile quand une nouvelle ressource regroupe le contenu de plusieurs anciennes.</li>
+        <li>Le score affiché pour la ligne est alors la <strong>moyenne</strong> des scores individuels de la principale et de chaque extra (voir §4).</li>
+        <li><strong>↺ Revenir au calcul automatique</strong> — visible uniquement si la ressource a un override manuel ; l'efface et laisse l'algorithme réaffecter automatiquement.</li>
+        <li><strong>🆕 À créer — aucun équivalent</strong> — marque la ressource comme volontairement sans équivalent ancien (à créer de toutes pièces), distinct de « sans correspondance non tranchée ».</li>
+      </ul>
+      <p style="font-size:12px;color:#475569">Les anciennes ressources attachées en extras sont protégées : un recalcul (§6) ne peut jamais les réaffecter ailleurs tant qu'elles restent cochées ici.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">9. Onglet Mots-cl&eacute;s</h3>
       <p>Permet d'explorer toutes les ressources par mot-cl&eacute; :</p>
@@ -953,28 +996,37 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
         <li>Mots-cl&eacute;s <strong>normalis&eacute;s</strong> (minuscules, sans accents, sans caract&egrave;res sp&eacute;ciaux) pour des correspondances robustes (8D, AMDEC, Lean, 5S&hellip;).</li>
       </ul>
 
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">9bis. Onglet 🧭 Contrôle ressources</h3>
+      <p>Vue d'audit indépendante des correspondances : liste <strong>toutes</strong> les ressources (anciennes et/ou nouvelles) dans une seule grille, une ligne par ressource, pour vérifier et corriger en masse les classifications.</p>
+      <ul style="margin:4px 0;padding-left:18px;font-size:12px">
+        <li><strong>Filtres</strong> : programme (ancien / nouveau / les deux), semestre, type, famille — filtrent les <em>lignes</em> affichées (pas de colonnes masquées).</li>
+        <li><strong>Type et famille éditables directement dans le tableau</strong> via des menus déroulants sur chaque ligne — pas besoin d'ouvrir la modale de détail.</li>
+        <li><strong>Compétences ciblées</strong> visibles en clair sur chaque ligne, éditables au clic (ouvre la modale d'édition rapide, §8).</li>
+        <li>Une ressource avec un override manuel (type ou famille) est signalée visuellement.</li>
+      </ul>
+
       <h3 style="color:#1e3a5f;margin:16px 0 6px">10. Validation des correspondances</h3>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:12px;margin-top:6px">
-        <div style="background:#dcfce7;border-radius:8px;padding:8px"><strong>&#9989; Valider</strong><br>Confirme la correspondance. L'affectation automatique ne peut plus la modifier. Ajoute +20 pts au score (plafonn&eacute; &agrave; 100).</div>
-        <div style="background:#fef9c3;border-radius:8px;padding:8px"><strong>&#128260; &Agrave; revoir</strong><br>Signale un doute. Visible mais marqu&eacute;e pour r&eacute;vision ult&eacute;rieure.</div>
-        <div style="background:#fee2e2;border-radius:8px;padding:8px"><strong>&#10060; Refuser</strong><br>Rejette. La ressource est marqu&eacute;e &laquo;&nbsp;aucune correspondance&nbsp;&raquo; et exclue de l'automatique.</div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;font-size:12px;margin-top:6px">
+        <div style="background:#dcfce7;border-radius:8px;padding:8px"><strong>✓ Valider</strong> (bascule)<br>Confirme la correspondance et fixe l'ancienne ressource associée : elle devient prioritaire sur l'affectation automatique et gagne +20 pts au score (plafonné à 100). Un second clic retire la validation.</div>
+        <div style="background:#fee2e2;border-radius:8px;padding:8px"><strong>× Refuser</strong><br>Supprime réellement la correspondance (pas seulement un marquage cosmétique) : la ressource redevient « sans correspondance », les éventuels extras associés sont retirés, et elle est exclue de l'affectation automatique jusqu'à nouvelle intervention.</div>
       </div>
+      <p style="font-size:12px;color:#475569;margin-top:6px">Il n'y a plus de statut « à revoir » — seuls Validée / Refusée / (en attente) existent désormais.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">11. Bouton Calculer et Annuler</h3>
       <p><strong>&#9881;&#65039; Calculer</strong> &mdash; relance l'algorithme d'affectation complet sur toutes les ressources non verrouill&eacute;es. Les overrides manuels et validations sont pr&eacute;serv&eacute;s.</p>
       <p><strong>&#8617; Annuler</strong> (coin bas-droit de l'&eacute;cran, ou <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:11px">Ctrl+Z</kbd>) &mdash; annule la derni&egrave;re action modifiant les correspondances. Jusqu'&agrave; <strong>20 niveaux</strong> d'annulation. Le bouton est gris&eacute; s'il n'y a rien &agrave; annuler.</p>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">12. Pond&eacute;ration et profils</h3>
-      <p>Le bouton <strong>&#9881;&#65039; Pond&eacute;ration</strong> ouvre une modale pour ajuster les poids de chaque crit&egrave;re (0&ndash;100). 6 profils pr&eacute;d&eacute;finis permettent d'explorer diff&eacute;rentes strat&eacute;gies :</p>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">12. Pondération et profils</h3>
+      <p>Le bouton <strong>⚙️ Pondération</strong> ouvre une modale pour ajuster les poids des 6 critères du §4 (0–100, doivent sommer à 100). 6 profils prédéfinis permettent d'explorer différentes stratégies (poids donnés dans l'ordre Code / Titre / Texte / Famille / Semestre / Mots-clés) :</p>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;font-size:11px;margin-top:6px">
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Equilibre</strong><br>40/25/20/15 &mdash; profil par d&eacute;faut</div>
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Code+Famille</strong><br>Correspondance structurelle (num&eacute;rotation + famille)</div>
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Titre</strong><br>Poids maximal sur la similarit&eacute; des intitul&eacute;s</div>
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Semestre</strong><br>Ressources du m&ecirc;me semestre prioritaires</div>
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Mots-cl&eacute;s</strong><br>Partage th&eacute;matique fortement pond&eacute;r&eacute;</div>
-        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Texte</strong><br>Contenu textuel complet (titre + descriptif + comp&eacute;tences)</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Équilibre</strong><br>30/20/20/15/10/5 — profil par défaut</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Code+Famille</strong><br>40/15/15/20/8/2 — correspondance structurelle (numérotation + famille)</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Titre</strong><br>15/45/20/10/8/2 — poids maximal sur la similarité des intitulés</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Semestre</strong><br>20/15/15/15/30/5 — ressources du même semestre prioritaires</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Mots-clés</strong><br>15/20/20/15/10/20 — partage thématique fortement pondéré</div>
+        <div style="background:#f1f5f9;border-radius:6px;padding:6px 8px"><strong>Texte</strong><br>10/15/45/15/8/7 — contenu textuel complet (titre + descriptif + compétences)</div>
       </div>
-      <p style="font-size:12px;color:#475569;margin-top:6px">Le profil actif est mis en surbrillance &agrave; l'ouverture de la modale. Tout changement de pond&eacute;ration recalcule imm&eacute;diatement tous les scores.</p>
+      <p style="font-size:12px;color:#475569;margin-top:6px">Le profil actif est mis en surbrillance à l'ouverture de la modale. Tout changement de pondération recalcule immédiatement tous les scores.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">13. Import CSV (suggestions IA)</h3>
       <p>Permet d'importer un fichier CSV contenant des correspondances sugg&eacute;r&eacute;es par un outil IA externe :</p>
@@ -988,11 +1040,11 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
       <p>Une collision survient quand deux nouvelles ressources sont associ&eacute;es manuellement &agrave; la <em>m&ecirc;me</em> ancienne ressource. L'application ne bloque pas &mdash; les deux restent visibles &mdash; mais un badge <span style="background:#fef9c3;color:#a16207;border:1px solid #a16207;border-radius:8px;padding:1px 8px;font-size:11px;font-weight:700">&#9888; Affect&eacute;e plusieurs fois</span> signale la situation sur les lignes concern&eacute;es. L'enseignant doit alors corriger manuellement l'une des deux associations.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">15. Exports</h3>
-      <ul style="margin:4px 0;padding-left:18px;font-size:12px">
-        <li><strong>Excel / CSV</strong> &mdash; tableau complet avec toutes les colonnes (codes, titres, scores, familles, types, statuts, mots-cl&eacute;s partag&eacute;s). Utilisable pour reporting ou archivage.</li>
-        <li><strong>PDF</strong> &mdash; version imprimable format&eacute;e A4 paysage.</li>
-        <li>L'export refl&egrave;te toujours l'&eacute;tat courant apr&egrave;s application des overrides et pond&eacute;rations.</li>
-      </ul>
+      <p style="margin:6px 0"><strong>Excel</strong> — classeur mis en forme et filtrable : bandeau titre/sous-titre/indicateurs fusionné et coloré en en-tête, ligne d'en-tête de colonnes figée avec filtre automatique, lignes colorées selon le niveau de score, colonne semestre colorée par semestre, 3 colonnes-pastilles (Chgt = changement de parité orange, Dup. = ancienne réutilisée rouge, Multi = partage exceptionnel bleu) avec légende, largeur de colonnes adaptée automatiquement au contenu, extras listés en sous-lignes indentées sous leur ressource principale.</p>
+      <p style="margin:6px 0"><strong>PDF</strong> — version imprimable A4 paysage : bandeaux de semestre pleine largeur bien distincts, les 6 indicateurs du §7 en en-tête, mêmes 3 colonnes-pastilles et légende que l'Excel, extras listés en sous-lignes sous leur ressource principale.</p>
+      <p style="margin:6px 0"><strong>📦 Exporter le projet</strong> — bouton dans l'en-tête : télécharge un fichier <code>.json</code> contenant l'intégralité de l'état du projet (associations, validations, overrides de type/famille/compétences/mots-clés, extras). Sert à sauvegarder ou diffuser un projet.</p>
+      <p style="margin:6px 0"><strong>Importer un projet</strong> — depuis la modale de sélection de projet : charge un fichier <code>.json</code> exporté précédemment et crée <strong>toujours un nouveau projet</strong> (jamais d'écrasement d'un projet existant).</p>
+      <p style="font-size:12px;color:#475569;margin-top:6px">Tous les exports reflètent toujours l'état courant après application des overrides et pondérations.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">16. Historique des modifications</h3>
       <p>Chaque action (validation, changement manuel, modification de famille / type / mots-cl&eacute;s) est enregistr&eacute;e dans l'onglet <strong>Historique</strong> avec la date, la ressource concern&eacute;e et la nature du changement.</p>
