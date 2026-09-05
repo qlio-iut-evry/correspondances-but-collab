@@ -1613,8 +1613,14 @@ function resourceFamily(r){
   if(f==='Numerique & SI'||f==='Maths & Stats'||f==='Num\u00e9rique & Math\u00e9matiques') return 'Num\u00e9rique & Math\u00e9matiques';
   if(f==='Production & Logistique'||f==='Logistique'||f==='Production'||f==='Production & Flux') return 'Production & Flux';
   if(f==='Qualite'||f==='Qualit\u00e9 & Am\u00e9lioration') return 'Qualit\u00e9 & Am\u00e9lioration';
-  // Connaissance entreprise / Gestion & Finance → transversal=Gestion, métier=Production & Flux
-  if(f==='Connaissance entreprise'||f==='Gestion & Finance'||f==='Gestion & Entreprise'){
+  // R25: 'Gestion & Entreprise' est déjà une des 6 familles finales (choix
+  // direct possible via famButtons/PRE_FAMILIES, y compris sur une ressource
+  // métier) — ne jamais la retraiter, sous peine d'écraser silencieusement
+  // ce choix par 'Production & Flux' à chaque rendu. Seuls les synonymes
+  // bruts issus du PDF (jamais utilisés comme valeur d'override) sont encore
+  // réinterprétés selon le type transversal/métier.
+  if(f==='Gestion & Entreprise') return 'Gestion & Entreprise';
+  if(f==='Connaissance entreprise'||f==='Gestion & Finance'){
     return isT ? 'Gestion & Entreprise' : 'Production & Flux';
   }
   // Management → transversal=Gestion ; métier: titre lean/qualité→Q&A, sinon Production & Flux
