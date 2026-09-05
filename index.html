@@ -1681,6 +1681,16 @@ function isTransversalRes(r){
   // Ressources parcours-spécifiques (R3.IMP.xx, R4.MP.xx, ...) = toujours métier
   return isTransversalCode(r?.code||'');
 }
+// R28: transversal/métier d'une ressource EN TENANT COMPTE d'un override
+// manuel de type — à utiliser partout où cette classification conditionne un
+// appariement (adjScore, recomputeMatching). Sans ce garde-fou, reclassifier
+// une ressource ne changeait rien au calcul automatique : celui-ci se basait
+// toujours sur la règle de position automatique (fallbackAuto), même après
+// que l'utilisateur ait explicitement choisi l'autre type.
+function isTransversalSide(code, side, fallbackAuto){
+  const ov = S.typeOverrides[ovKey(side, code)];
+  return ov ? ov==='transversal' : fallbackAuto;
+}
 
 // Code similarity JS (context-aware — mirrors Python logic)
 function codeSimJS(oc, nc, oldFam, newFam, titleSc){
@@ -1706,9 +1716,11 @@ function codeSimJS(oc, nc, oldFam, newFam, titleSc){
 }
 
 function adjScore(row){
-  // Contrainte absolue : transversal ↔ métier = incompatible
-  const oldTransv = row.oldTransversal ?? isTransversalCode(row.oldCode||'');
-  const newTransv = row.newTransversal ?? isTransversalCode(row.newCode||'');
+  // Contrainte absolue : transversal ↔ métier = incompatible — mais un
+  // override manuel de type doit pouvoir rendre compatible une paire jugée
+  // incompatible par la seule règle automatique (cf. isTransversalSide).
+  const oldTransv = isTransversalSide(row.oldCode, 'old', row.oldTransversal ?? isTransversalCode(row.oldCode||''));
+  const newTransv = isTransversalSide(row.newCode, 'new', row.newTransversal ?? isTransversalCode(row.newCode||''));
   if(oldTransv !== newTransv) return 0;
 
   const titleSc = row.titleScore || 0;
@@ -1805,8 +1817,13 @@ function recomputeMatching(){
   // Build lookup maps to resolve transversal type directly from resource objects
   const oldById = Object.fromEntries(S.old.map(r=>[r.code,r]));
   const newById = Object.fromEntries(S.new.map(r=>[r.code,r]));
-  const tOld = code => { const r=oldById[code]; return r ? isTransversalRes(r) : isTransversalCode(code); };
-  const tNew = code => { const r=newById[code]; return r ? isTransversalRes(r) : isTransversalCode(code); };
+  // R28: tOld/tNew doivent respecter un override manuel de type, sinon
+  // reclassifier une ressource ne rouvre jamais les paires que ce nouveau
+  // type rend compatibles (ex. R3.IMP.01 reclassée transversale pour
+  // correspondre à R3.01) — le calcul automatique continuerait de les
+  // écarter comme avant la reclassification.
+  const tOld = code => { const r=oldById[code]; const auto=r?isTransversalRes(r):isTransversalCode(code); return isTransversalSide(code,'old',auto); };
+  const tNew = code => { const r=newById[code]; const auto=r?isTransversalRes(r):isTransversalCode(code); return isTransversalSide(code,'new',auto); };
 
   // Filter rows to active parcours (based on oldPathCode, independent of transversal type)
   let eligible = S.rows.filter(r => ap.has(r.oldPathCode||'TC'));
@@ -1876,16 +1893,20 @@ function recomputeMatching(){
 function sanitizeTransversalFlags(){
   const oldIdx=Object.fromEntries((S.old||[]).map(r=>[r.code,r]));
   const newIdx=Object.fromEntries((S.new||[]).map(r=>[r.code,r]));
-  // Recalcule les flags et supprime les paires cross-type (transversal ↔ métier)
-  S.rows = (S.rows||[]).filter(row=>{
+  // R28: ne plus supprimer les paires cross-type (transversal ↔ métier) ici —
+  // cette suppression était définitive (S.rows perdait la ligne pour de bon)
+  // et empêchait tout override manuel de type de rouvrir une paire ainsi
+  // écartée, même après recalcul. La compatibilité transversal/métier est
+  // désormais vérifiée dynamiquement, overrides inclus, à chaque usage
+  // (adjScore, recomputeMatching via isTransversalSide) — ce garde-fou ne
+  // fait plus que rafraîchir les flags mémorisés sur chaque ligne.
+  (S.rows||[]).forEach(row=>{
     const o=oldIdx[row.oldCode], n=newIdx[row.newCode];
     const oT = o ? isTransversalRes(o) : isTransversalCode(row.oldCode);
     const nT = n ? isTransversalRes(n) : isTransversalCode(row.newCode);
-    if(oT !== nT) return false; // éliminer la paire cross-type
     row.oldTransversal = oT;
     row.newTransversal = nT;
     row.isTransversal  = oT && nT;
-    return true;
   });
 }
 
@@ -2132,7 +2153,10 @@ function renderCorr(){
                       isTransv ? '<span style="font-size:10px;color:#0891b2">📌 Transversale</span> ' :
                       '<span style="font-size:10px;color:#7c3aed">⚙️ Metier</span> ';
     // Top-3 alternatives
-    const alts = S.rows.filter(r=>r.newCode===rN.code&&r.rank>1&&r.rank<=3);
+    // R28: S.rows contient maintenant aussi les paires cross-type (plus
+    // supprimées par sanitizeTransversalFlags) — les exclure ici pour ne pas
+    // proposer une "alternative" que adjScore afficherait de toute façon à 0%.
+    const alts = S.rows.filter(r=>r.newCode===rN.code&&r.rank>1&&r.rank<=3&&isTransversalSide(r.oldCode,'old',r.oldTransversal)===isTransversalSide(r.newCode,'new',r.newTransversal));
     const altHtml = alts.length ? `<div style="margin-top:4px;font-size:10px;color:#64748b">Alt: ${alts.map(a=>`<span style="cursor:pointer;color:#2563eb" onclick="event.stopPropagation();openCompare('${eA(a.oldCode)}','${eA(rN.code)}')" title="${eA(a.oldTitle)}">${eA(a.oldCode)} ${(adjScore(a)).toFixed(0)}%</span>`).join(' · ')}</div>` : '';
     // Facilité de transition
     const ease = scoreRow?.ease||'';
