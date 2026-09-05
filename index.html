@@ -1912,6 +1912,27 @@ function compareRow(oldRes,newRes){
   };
 }
 
+// R44: score affiché pour une ressource nouvelle — moyenne du score de sa
+// correspondance principale ET de chacune de ses ressources "extras"
+// (partage exceptionnel, S.extras) quand il y en a, plutôt que la seule
+// principale. Recalcule systématiquement via compareRow()/adjScore() (qui
+// retombe déjà sur un calcul à la volée si la paire n'est pas dans le
+// jeu précalculé — cf. R43) au lieu de faire confiance à un score en cache
+// qui pourrait être obsolète après un changement de pondération.
+function effectiveScore(nc){
+  const m=S.matching[nc];
+  if(!m||!m.oldCode) return 0;
+  const rN=S.new.find(r=>r.code===nc);
+  if(!rN) return m.score||0;
+  const codes=[m.oldCode, ...(S.extras?.[nc]||[])];
+  const scores=codes.map(oc=>{
+    const rO=S.old.find(r=>r.code===oc);
+    const row=rO?compareRow(rO,rN):null;
+    return row?adjScore(row):0;
+  });
+  return scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
+}
+
 // ===== BIJECTIVE MATCHING =====
 function recomputeMatching(){
   if (!S.rows.length) return;
@@ -1948,13 +1969,26 @@ function recomputeMatching(){
     }
     usedNew.add(nc);
     if(oc){
-      const row = eligible.find(r=>r.newCode===nc&&r.oldCode===oc);
+      // R43: S.rows (BDATA) ne contient que les meilleurs candidats
+      // précalculés par ressource (~20), pas le produit cartésien complet —
+      // une affectation manuelle sortant de ce sous-ensemble n'y a jamais
+      // figuré, faisant retomber le score à 0 comme si la paire était
+      // mauvaise alors qu'elle n'a simplement jamais été évaluée. On
+      // retombe sur compareRow()/adjScore() (calcul à la volée) plutôt que
+      // sur le seul lookup dans `eligible`.
+      let row = eligible.find(r=>r.newCode===nc&&r.oldCode===oc);
+      let sc = row?.adjSc;
+      if(sc===undefined){
+        const rO=oldById[oc], rN=newById[nc];
+        const synth = (rO&&rN) ? compareRow(rO,rN) : null;
+        sc = synth ? adjScore(synth) : 0;
+      }
       if(!usedOld.has(oc)){
-        S.matching[nc] = {oldCode:oc, score:row?.adjSc||0, manual:true};
+        S.matching[nc] = {oldCode:oc, score:sc, manual:true};
         usedOld.add(oc);
       } else {
         // Collision : l'ancienne ressource est déjà prise — on garde la ressource visible avec flag collision
-        S.matching[nc] = {oldCode:oc, score:row?.adjSc||0, manual:true, collision:true};
+        S.matching[nc] = {oldCode:oc, score:sc, manual:true, collision:true};
       }
     }
   }
@@ -3431,23 +3465,40 @@ const XLCOLORS={
 };
 function xlScoreFill(s){ return (XLCOLORS.score.find(([min])=>s>=min)||XLCOLORS.score.at(-1))[1]; }
 function xlSemFill(sem){ return XLCOLORS.sem[(Number(sem)-1+XLCOLORS.sem.length)%XLCOLORS.sem.length]; }
+// R45: fgColor ET bgColor sur chaque remplissage plein — certains lecteurs
+// XLSX (hors Excel récent) n'appliquent pas fidèlement un patternType
+// "solid" quand seul fgColor est renseigné. Police toujours nommée
+// explicitement ("Calibri", jamais un objet {bold,color} sans `name`) —
+// laisser ExcelJS deviner la police est une source connue d'incohérences
+// de rendu selon le lecteur.
+function xlFill(argb){ return {type:'pattern',pattern:'solid',fgColor:{argb},bgColor:{argb}}; }
+function xlFont(opts){ return {name:'Calibri',...opts}; }
 function xlStyleHeaderRow(row){
   row.eachCell(c=>{
-    c.fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.header}};
-    c.font={bold:true,color:{argb:XLCOLORS.headerText}};
+    c.fill=xlFill(XLCOLORS.header);
+    c.font=xlFont({bold:true,color:{argb:XLCOLORS.headerText}});
     c.alignment={vertical:'middle',wrapText:true};
   });
   row.height=22;
 }
-function xlAutoWidth(ws,mins){
-  ws.columns.forEach((col,i)=>{
-    let max=mins?.[i]||10;
-    col.eachCell({includeEmpty:false},cell=>{
+// R45: mesure la largeur à partir de `startRow` (1 par défaut). Les lignes
+// fusionnées (bandeau titre/sous-titre/indicateurs, colonnes 1..N) faisaient
+// remonter leur texte long sur CHAQUE colonne via col.eachCell() (une
+// cellule fusionnée non-maîtresse renvoie la valeur de la cellule maîtresse
+// côté ExcelJS) : toutes les colonnes se retrouvaient plafonnées à 60 au
+// lieu d'une largeur reflétant leur propre contenu.
+function xlAutoWidth(ws,mins,startRow){
+  const from=startRow||1;
+  for(let i=1;i<=ws.columnCount;i++){
+    let max=mins?.[i-1]||10;
+    const col=ws.getColumn(i);
+    col.eachCell({includeEmpty:false},(cell,rowNum)=>{
+      if(rowNum<from) return;
       const len=String(cell.value??'').length;
       if(len>max) max=len;
     });
     col.width=Math.min(max+2,60);
-  });
+  }
 }
 
 async function exportExcel(btn){
@@ -3466,23 +3517,22 @@ async function exportExcel(btn){
     ws.mergeCells(1,1,1,NCOLS);
     const titleCell=ws.getCell(1,1);
     titleCell.value='Correspondances Ressources QLIO';
-    titleCell.font={bold:true,size:16,color:{argb:XLCOLORS.headerText}};
+    titleCell.font=xlFont({bold:true,size:16,color:{argb:XLCOLORS.headerText}});
     titleCell.alignment={horizontal:'center',vertical:'middle'};
     ws.getRow(1).height=26;
     ws.mergeCells(2,1,2,NCOLS);
     const subCell=ws.getCell(2,1);
     subCell.value=`${S.oldName||'?'}  →  ${S.newName||'?'}  |  Généré le ${d}  |  Parcours actifs: ${[...getActiveParcours()].join(', ')}`;
-    subCell.font={size:10,color:{argb:XLCOLORS.headerText}};
+    subCell.font=xlFont({size:10,color:{argb:XLCOLORS.headerText}});
     subCell.alignment={horizontal:'center'};
-    [1,2].forEach(r=>ws.getRow(r).eachCell({includeEmpty:true},c=>{c.fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.header}};}));
-    for(let c=1;c<=NCOLS;c++){ ws.getCell(1,c).fill=ws.getCell(2,c).fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.header}}; }
+    [1,2].forEach(r=>ws.getRow(r).eachCell({includeEmpty:true},c=>{c.fill=xlFill(XLCOLORS.header);}));
 
     // Indicateurs — mêmes définitions que le tableau à l'écran / le PDF
     const totalNew=S.new.length;
     const matchedEntries=Object.entries(S.matching).filter(([,m])=>m?.oldCode);
     const matchedCount=matchedEntries.length;
     const noMatchCount=totalNew-matchedCount;
-    const scores=matchedEntries.map(([,m])=>m.score||0);
+    const scores=matchedEntries.map(([nc])=>effectiveScore(nc));
     const avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
     const oldUsage={};
     matchedEntries.forEach(([,m])=>{ oldUsage[m.oldCode]=(oldUsage[m.oldCode]||0)+1; });
@@ -3500,7 +3550,7 @@ async function exportExcel(btn){
     ws.getCell(3,1).value=`Anciennes: ${S.old.length}  |  Nouvelles: ${totalNew}  |  Correspondances: ${matchedCount}  |  Score moyen: ${avg.toFixed(1)}%  |  Validées: ${validated} (${valRate}%)`;
     ws.mergeCells(4,1,4,NCOLS);
     ws.getCell(4,1).value=`Sans correspondance: ${noMatchCount}  |  Changement pair/impair: ${crossSemCount}/${matchedCount} (${crossSemRate}%)  |  Anciennes affectées ≥ 2 fois: ${duplicatedOld.size}`;
-    [3,4].forEach(r=>{ ws.getCell(r,1).font={bold:true,size:10,color:{argb:'FF1E293B'}}; ws.getRow(r).eachCell({includeEmpty:true},c=>c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF0F5FF'}}); });
+    [3,4].forEach(r=>{ ws.getCell(r,1).font=xlFont({bold:true,size:10,color:{argb:'FF1E293B'}}); ws.getRow(r).eachCell({includeEmpty:true},c=>c.fill=xlFill('FFF0F5FF')); });
 
     const HDR=['Nouvelle ressource','Titre nouveau','S. nouveau','Famille','Ancienne ressource','Titre ancien','S. ancien','Parcours ancien','Score (%)','Famille anc.','Mots-clés communs','Chgt semestre','Affectée ≥2×','Ressources secondaires','Validation','Commentaire'];
     const headerRow=ws.getRow(6);
@@ -3515,7 +3565,7 @@ async function exportExcel(btn){
         const rO=S.old.find(r=>r.code===m.oldCode);
         if(!rO) return null;
         const row=S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code);
-        return {rN,rO,score:row?adjScore(row):(m.score||0),row};
+        return {rN,rO,score:effectiveScore(rN.code),row};
       })
       .filter(Boolean)
       .sort((a,b)=>a.rN.semestre-b.rN.semestre||a.rN.code.localeCompare(b.rN.code));
@@ -3532,17 +3582,19 @@ async function exportExcel(btn){
         Number(sc.toFixed(1)),resourceFamily(rO),row?.sharedKeywords||'',semChanged?'OUI':'',isDup?'OUI':'',extrasText,v.status||'',v.comment||''];
       vals.forEach((val,i)=>r.getCell(i+1).value=val);
       const rowFill=xlScoreFill(sc);
-      r.eachCell({includeEmpty:true},c=>{ if(!c.fill) c.fill={type:'pattern',pattern:'solid',fgColor:{argb:rowFill}}; });
-      r.getCell(3).fill={type:'pattern',pattern:'solid',fgColor:{argb:xlSemFill(rN.semestre)}};
-      r.getCell(3).font={bold:true};
-      if(semChanged){ r.getCell(12).fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.flagOn}}; r.getCell(12).font={bold:true,color:{argb:'FFFFFFFF'}}; }
-      if(isDup){ r.getCell(13).fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.flagDup}}; r.getCell(13).font={bold:true,color:{argb:'FFFFFFFF'}}; }
-      if(extraCodes.length){ r.getCell(14).fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.flagMulti}}; r.getCell(14).font={color:{argb:'FFFFFFFF'}}; }
+      r.eachCell({includeEmpty:true},c=>{ if(!c.fill) c.fill=xlFill(rowFill); });
+      r.getCell(3).fill=xlFill(xlSemFill(rN.semestre));
+      r.getCell(3).font=xlFont({bold:true});
+      if(semChanged){ r.getCell(12).fill=xlFill(XLCOLORS.flagOn); r.getCell(12).font=xlFont({bold:true,color:{argb:'FFFFFFFF'}}); }
+      if(isDup){ r.getCell(13).fill=xlFill(XLCOLORS.flagDup); r.getCell(13).font=xlFont({bold:true,color:{argb:'FFFFFFFF'}}); }
+      if(extraCodes.length){ r.getCell(14).fill=xlFill(XLCOLORS.flagMulti); r.getCell(14).font=xlFont({color:{argb:'FFFFFFFF'}}); }
       r.getCell(9).numFmt='0.0"%"';
       excelRowIdx++;
     });
-    xlAutoWidth(ws,[14,34,7,20,14,34,7,10,8,20,26,10,10,34,10,26]);
-    ws.getColumn(2).width=34; ws.getColumn(6).width=34; ws.getColumn(14).width=34;
+    // R45: xlAutoWidth() calcule déjà une largeur adaptée au contenu réel —
+    // ces 3 lignes la réécrasaient juste après avec une valeur fixe de 34,
+    // tronquant tout titre plus long (cause du texte coupé signalé).
+    xlAutoWidth(ws,[14,34,7,20,14,34,7,10,8,20,26,10,10,34,10,26],6);
 
     // ── Feuilles simples (ancien / nouveau / non affectées) ────────────
     function addResourceSheet(name,list){
@@ -3555,7 +3607,7 @@ async function exportExcel(btn){
         const row=w.getRow(idx+2);
         [r.code,r.titre,r.semestre,r.parcours_code||'TC',resourceFamily(r),(r.competences||[]).join(' | '),(r.mots_cles||[]).join(' | ')]
           .forEach((v,i)=>row.getCell(i+1).value=v);
-        if(idx%2===1) row.eachCell({includeEmpty:true},c=>c.fill={type:'pattern',pattern:'solid',fgColor:{argb:XLCOLORS.band}});
+        if(idx%2===1) row.eachCell({includeEmpty:true},c=>c.fill=xlFill(XLCOLORS.band));
       });
       xlAutoWidth(w,[12,34,8,10,20,40,40]);
       return w;
@@ -3673,7 +3725,7 @@ function exportPDF(){
       if(!m||!m.oldCode) return null;
       const rO=S.old.find(r=>r.code===m.oldCode);
       if(!rO) return null;
-      return {rN,rO,score:m.score||0};
+      return {rN,rO,score:effectiveScore(rN.code)};
     })
     .filter(Boolean)
     .sort((a,b)=>a.rN.semestre-b.rN.semestre||a.rN.code.localeCompare(b.rN.code));
@@ -4410,7 +4462,7 @@ function renderCorrDetail(newCode){
   const m=S.matching[newCode];
   const rO=m?S.old.find(r=>r.code===m.oldCode):null;
   const row=(rN&&rO)?S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code):null;
-  const score=row?adjScore(row):(m?m.score||0:0);
+  const score=m?effectiveScore(newCode):0;
   const tr=corrTransitionInfo(row,score);
   const v=S.validations[newCode]||{};
   const typeInfoN=resourceTypeInfo(newCode,row,rO,rN);
@@ -4981,7 +5033,7 @@ function renderCorrEnhanced(){
     const rO=S.old.find(r=>r.code===m.oldCode); if(!rO) return;
     if(fam && resourceFamily(rN)!==fam && resourceFamily(rO)!==fam) return;
     const scoreRow=S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code)||{};
-    const score=scoreRow.oldCode ? adjScore(scoreRow) : (m.score||0);
+    const score=effectiveScore(rN.code);
     if(score<sMin) return;
     const isTransv=isDisplayedTransversal(scoreRow,rO,rN);
     if(transv==='oui' && !isTransv) return;
