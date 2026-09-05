@@ -191,13 +191,14 @@ function renderProjectBadge() {
 async function loadProjectState() {
   if (!CURRENT_PROJECT_ID) return;
 
-  const [ovRes, valRes, kwRes, famRes, typRes, compRes, histRes] = await Promise.all([
+  const [ovRes, valRes, kwRes, famRes, typRes, compRes, extRes, histRes] = await Promise.all([
     db.from('overrides')       .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('validations')     .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('kw_overrides')    .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('family_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('type_overrides')  .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('competence_overrides').select('*').eq('project_id', CURRENT_PROJECT_ID),
+    db.from('extras')          .select('*').eq('project_id', CURRENT_PROJECT_ID),
     db.from('history')         .select('*, profiles(display_name,email)')
                                .eq('project_id', CURRENT_PROJECT_ID)
                                .order('created_at', { ascending: false })
@@ -233,6 +234,12 @@ async function loadProjectState() {
   // Reconstruire S.competenceOverrides
   S.competenceOverrides = {};
   (compRes.data || []).forEach(r => { S.competenceOverrides[ovKey(r.side,r.resource_code)] = r.competences; });
+
+  // Reconstruire S.extras (plusieurs lignes possibles par new_code)
+  S.extras = {};
+  (extRes.data || []).forEach(r => {
+    (S.extras[r.new_code] ||= []).push(r.old_code);
+  });
 
   // Reconstruire S.hist
   S.hist = (histRes.data || []).map(r => ({
@@ -377,6 +384,27 @@ async function deleteTypeOverride(resourceCode, side) {
   return syncOverrideValue('type_overrides', 'is_transversal', resourceCode, null, side);
 }
 
+/** Sauvegarde les ressources "extras" (partage exceptionnel secondaire)
+ * d'une ressource nouvelle : remplace toutes ses lignes existantes par la
+ * liste fournie (delete-puis-insert — plus simple qu'un diff ligne à ligne
+ * pour un tableau généralement court de 0 à 2 éléments). */
+async function syncExtras(newCode, oldCodes) {
+  if (!CURRENT_PROJECT_ID) return;
+  const { error: delError } = await db.from('extras')
+    .delete()
+    .eq('project_id', CURRENT_PROJECT_ID)
+    .eq('new_code', newCode);
+  if (delError) { console.error('[Sync] syncExtras (delete):', delError); return; }
+  if (!oldCodes || !oldCodes.length) { markSaved(); return; }
+  const { error: insError } = await db.from('extras').insert(
+    oldCodes.map(oc => ({
+      project_id: CURRENT_PROJECT_ID, new_code: newCode, old_code: oc,
+      updated_by: CURRENT_USER.id
+    }))
+  );
+  if (insError) console.error('[Sync] syncExtras (insert):', insError); else markSaved();
+}
+
 /** Supprime, pour le projet courant, toutes les lignes des tables données.
  * Utilisé par les boutons de réinitialisation groupée (Réinitialiser les
  * validations, Réinitialisation complète) pour que le reset local se
@@ -440,6 +468,10 @@ function subscribeToRealtime() {
     }, onRemoteChange)
     .on('postgres_changes', {
       event: '*', schema: 'public', table: 'competence_overrides',
+      filter: `project_id=eq.${CURRENT_PROJECT_ID}`
+    }, onRemoteChange)
+    .on('postgres_changes', {
+      event: '*', schema: 'public', table: 'extras',
       filter: `project_id=eq.${CURRENT_PROJECT_ID}`
     }, onRemoteChange)
     .subscribe(status => {
@@ -572,6 +604,24 @@ function installSyncProxies() {
 
   S.typeOverrides = makeOverrideKeyProxy(S.typeOverrides,
     syncTypeOverride, deleteTypeOverride);
+
+  // R32: S.extras est clé par new_code seul (pas de compound "side:code" —
+  // ce mécanisme ne concerne que les ressources nouvelles), donc pas besoin
+  // de makeOverrideKeyProxy/parseOvKey ici, contrairement aux 4 Proxy
+  // ci-dessus.
+  const _origExtras = S.extras || {};
+  S.extras = new Proxy(_origExtras, {
+    set(target, prop, value) {
+      target[prop] = value;
+      if (CURRENT_PROJECT_ID) syncExtras(prop, value).catch(console.error);
+      return true;
+    },
+    deleteProperty(target, prop) {
+      delete target[prop];
+      if (CURRENT_PROJECT_ID) syncExtras(prop, []).catch(console.error);
+      return true;
+    }
+  });
 }
 
 function patchAppFunctions() {
@@ -735,7 +785,7 @@ async function cloneProject(sourceProjectId){
     }).select().single();
     if (e1) throw e1;
 
-    const tablesToClone = ['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides'];
+    const tablesToClone = ['overrides','validations','kw_overrides','family_overrides','type_overrides','competence_overrides','extras'];
     for (const t of tablesToClone) {
       const { data: rows, error: e2 } = await db.from(t).select('*').eq('project_id', sourceProjectId);
       if (e2) throw e2;
