@@ -2654,7 +2654,7 @@ function renderSynthese(){
   }).join(''):'<p class="hint">✅ Toutes ≥35%</p>';
 
   document.getElementById('synth-unmatched').innerHTML=unmO.length?unmO.map(r=>
-    `<div class="res-item"><span class="code">${eH(r.code)}</span> ${eH(r.titre.slice(0,48))}<div class="hint">S${r.semestre} · ${eH(displayParcours(r.parcours_code))}</div></div>`
+    `<div class="res-item" style="cursor:pointer" onclick="openResourceEditModal('old','${eA(r.code)}')"><span class="code">${eH(r.code)}</span> ${eH(r.titre.slice(0,48))}<div class="hint">S${r.semestre} · ${eH(displayParcours(r.parcours_code))}</div></div>`
   ).join(''):'<p class="hint">✅ Toutes affectées</p>';
 
   const bins=[0,10,20,30,40,50,60,70,80,90,100];
