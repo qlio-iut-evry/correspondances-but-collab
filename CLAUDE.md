@@ -29,9 +29,10 @@ sa logique métier d'origine**.
 ## 3. Stack technique exacte
 
 - **Aucun framework, aucun bundler/transpileur, aucun `package.json`.**
-  HTML/CSS/JS vanilla à 99,4 % (statistique GitHub). Seule exception :
-  `build.js`, un script Node autonome (aucune dépendance) qui réinjecte
-  `supabase-sync.js` dans `index.html` — voir §4.
+  HTML/CSS/JS vanilla à 99,4 % (statistique GitHub). Deux exceptions, deux
+  scripts Node autonomes (aucune dépendance) : `build.js` (réinjecte
+  `supabase-sync.js` dans `index.html` — voir §4) et `test.js` (filet de
+  tests minimal — voir §7).
 - **Frontend** : une seule page applicative `index.html`, servie statiquement.
 - **Auth** : Supabase Auth (email/mot de passe + lien magique OTP), via le SDK
   officiel `@supabase/supabase-js@2` :
@@ -58,6 +59,7 @@ correspondances-but-collab/
 ├── auth.html             Page de connexion / inscription (email+mdp, magic link)
 ├── index.html            Appli principale — bundle auto-suffisant (app + SDK + sync)
 ├── build.js               Réinjecte supabase-sync.js dans index.html (voir ci-dessous)
+├── test.js                Filet de tests minimal (voir §7)
 ├── supabase-sync.js       Source éditable de la couche de synchro (voir §3)
 ├── supabase.min.js        Source éditable du SDK Supabase bundlé dans index.html
 └── sql/
@@ -133,7 +135,29 @@ garde-fou et reste recopié à la main — voir §6.
   (copier-coller de clés, étapes GitHub Pages). Le tenir à jour si la
   procédure change, sinon un·e collègue reproduira une install cassée.
 
-## 7. Règles de commit
+## 7. Tests
+
+`test.js` (script Node autonome, aucune dépendance) protège la logique
+métier pure (score, famille, type transversal/métier) contre des régressions
+déjà rencontrées sur ce projet, en extrayant les fonctions concernées
+directement du bundle `index.html` (pas de copie qui pourrait diverger) et
+en les exécutant dans un bac à sable minimal (`vm` + un `S` factice) :
+
+```
+node test.js   sort en code 1 si un test échoue, affiche le détail de chaque cas
+```
+
+Inclut aussi un test de cohérence documentaire : les poids des 6 profils de
+pondération cités dans le Guide intégré (`#modal-help`, §12) sont comparés à
+l'objet `PROFILES` réellement utilisé par le code — détecte automatiquement
+une dérive de la doc plutôt que de la découvrir des mois plus tard.
+
+**Lancer `node test.js` avant de committer un changement touchant au calcul
+de score, à la classification famille/type, ou au Guide.** Ce n'est pas une
+couverture exhaustive (pas de test d'intégration UI) — voir CLAUDE.md pour
+ajouter un cas quand un nouveau bug de ce type est corrigé.
+
+## 8. Règles de commit
 
 - Le remote est `origin` → `main` (pas de branche `develop`, pas de PR
   process observé sur l'historique actuel — 3 commits, tous directement sur
