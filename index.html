@@ -3394,46 +3394,162 @@ function exportExcel(){
 }
 
 // ===== EXPORT PDF =====
+// R41: sanitisation texte PDF — les fonts de base jsPDF (helvetica) ne
+// couvrent que Windows-1252/Latin-1 ; une apostrophe typographique (’,
+// U+2019, quasi systématique dans les titres extraits du PDF source)
+// tombait hors de ce jeu et était remplacée par un "?" littéral partout
+// dans le rapport. On convertit d'abord la typographie courante vers son
+// équivalent ASCII avant de retomber sur "?" pour le reste.
+function sanitizeForPdf(t,n){
+  const s=String(t??'')
+    .replace(/[’‘]/g,"'").replace(/[“”]/g,'"')
+    .replace(/[–—]/g,'-').replace(/…/g,'...')
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g,'?');
+  return n?s.slice(0,n):s;
+}
+
 function exportPDF(){
   if(!S.loaded){alert('Chargez d\'abord les données.');return;}
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight();
   const d=new Date().toLocaleDateString('fr-FR');
-  // Header
-  doc.setFillColor(30,58,95);doc.rect(0,0,W,26,'F');
+
+  // R41: sous-titre sur sa propre ligne, largeur bornée (splitTextToSize)
+  // au lieu d'un texte centré non borné qui débordait de la page — c'était
+  // la cause du texte tronqué/décalé signalé ("→" en plus, hors du jeu de
+  // caractères de la font de base, y contribuait aussi).
+  doc.setFillColor(30,58,95);
+  const subtitle=sanitizeForPdf(`${S.oldName||'?'}  ->  ${S.newName||'?'}  |  Genere le ${d}  |  Parcours actifs: ${[...getActiveParcours()].join(', ')}`);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  const subtitleLines=doc.splitTextToSize(subtitle,W-24);
+  const headerH=18+subtitleLines.length*5;
+  doc.rect(0,0,W,headerH,'F');
   doc.setTextColor(255,255,255);doc.setFontSize(14);doc.setFont('helvetica','bold');
   doc.text('Correspondances Ressources QLIO',W/2,12,{align:'center'});
   doc.setFontSize(9);doc.setFont('helvetica','normal');
-  doc.text(`${S.oldName}  →  ${S.newName}  |  Généré le ${d}  |  Parcours actifs: ${[...getActiveParcours()].join(', ')}`,W/2,20,{align:'center'});
-  // Metrics
-  const scores=Object.values(S.matching).map(m=>m.score||0);
+  subtitleLines.forEach((l,i)=>doc.text(l,W/2,19+i*5,{align:'center'}));
+
+  // R41: mêmes indicateurs que le tableau à l'écran (sans correspondance,
+  // changement pair/impair, anciennes affectées ≥2 fois, taux de
+  // validation) — l'ancien jeu (fortes/moyennes/prioritaires) ne
+  // correspondait plus à ce qui est affiché depuis la refonte des KPI.
+  const totalNew=S.new.length;
+  const matchedEntries=Object.entries(S.matching).filter(([,m])=>m?.oldCode);
+  const matchedCount=matchedEntries.length;
+  const noMatchCount=totalNew-matchedCount;
+  const scores=matchedEntries.map(([,m])=>m.score||0);
   const avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
+  const oldUsage={};
+  matchedEntries.forEach(([,m])=>{ oldUsage[m.oldCode]=(oldUsage[m.oldCode]||0)+1; });
+  const duplicatedOld=new Set(Object.keys(oldUsage).filter(k=>oldUsage[k]>1));
+  let crossSemCount=0;
+  matchedEntries.forEach(([nc,m])=>{
+    const rO=S.old.find(r=>r.code===m.oldCode), rN=S.new.find(r=>r.code===nc);
+    if(rO&&rN&&(rO.semestre%2)!==(rN.semestre%2)) crossSemCount++;
+  });
+  const crossSemRate=matchedCount?Math.round(crossSemCount/matchedCount*100):0;
+  const validated=Object.values(S.validations).filter(v=>v.status==='valide').length;
+  const valRate=totalNew?Math.round(validated/totalNew*100):0;
+  let yMetrics=headerH+9;
   doc.setTextColor(30,41,59);doc.setFontSize(9);
-  doc.text(`Anciennes: ${S.old.length}  |  Nouvelles: ${S.new.length}  |  Correspondances: ${Object.keys(S.matching).length}  |  Score moyen: ${avg.toFixed(1)}%  |  Validées: ${Object.values(S.validations).filter(v=>v.status==='valide').length}`,14,33);
-  // Table
-  let y=41;
-  const cols=[[13,'Nouvelle',28],[41,'Titre nouveau',52],[93,'Anc.',28],[121,'Titre ancien',48],[169,'S',8],[177,'Parc.',14],[191,'Score',20],[211,'Famille',42]];
-  doc.setFillColor(240,245,255);doc.rect(10,y-5,W-20,8,'F');
-  doc.setFont('helvetica','bold');doc.setFontSize(8);
-  cols.forEach(([x,l])=>doc.text(l,x,y));
-  y+=4;doc.setDrawColor(200,210,220);doc.line(10,y,W-10,y);y+=4;
-  doc.setFont('helvetica','normal');
-  S.new.forEach((rN,idx)=>{
-    const m=S.matching[rN.code];if(!m) return;
-    const rO=S.old.find(r=>r.code===m.oldCode);if(!rO) return;
-    const s=m.score||0;
-    if(y>H-12){doc.addPage();y=20;}
+  doc.text(sanitizeForPdf(`Anciennes: ${S.old.length}  |  Nouvelles: ${totalNew}  |  Correspondances: ${matchedCount}  |  Score moyen: ${avg.toFixed(1)}%  |  Validees: ${validated} (${valRate}%)`),14,yMetrics);
+  yMetrics+=6;
+  doc.text(sanitizeForPdf(`Sans correspondance: ${noMatchCount}  |  Changement pair/impair: ${crossSemCount}/${matchedCount} (${crossSemRate}%)  |  Anciennes affectees >= 2 fois: ${duplicatedOld.size}`),14,yMetrics);
+
+  // R41: regroupement visuel par semestre (bandeau plein) — la seule
+  // colonne "S" en petits caracteres ne marquait pas assez la frontiere
+  // entre semestres, et le tri par ordre naturel de S.new ne garantissait
+  // pas un regroupement propre.
+  let y=yMetrics+11;
+  const cols=[[13,'Nouvelle',26],[39,'Titre nouveau',50],[89,'Anc.',26],[115,'Titre ancien',44],[159,'S',8],[167,'Parc.',13],[180,'Score',18],[198,'Famille',40]];
+  const flagColSemChange=240, flagColDup=255, flagColMulti=270;
+  function drawTableHeader(){
+    doc.setFillColor(240,245,255);doc.rect(10,y-5,W-20,8,'F');
+    doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor(30,41,59);
+    cols.forEach(([x,l])=>doc.text(l,x,y));
+    doc.text('Chgt',flagColSemChange,y);
+    doc.text('Dup.',flagColDup,y);
+    doc.text('Multi',flagColMulti,y);
+    y+=4;doc.setDrawColor(200,210,220);doc.line(10,y,W-10,y);y+=4;
+    doc.setFont('helvetica','normal');
+  }
+  function drawSemBanner(sem){
+    if(y>H-16){doc.addPage();y=16;}
+    doc.setFillColor(30,58,95);doc.rect(10,y-4.5,W-20,7,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);
+    doc.text(`SEMESTRE ${sem}`,14,y);
+    y+=8;
+    drawTableHeader();
+  }
+  drawTableHeader();
+
+  const rowsData=S.new
+    .map(rN=>{
+      const m=S.matching[rN.code];
+      if(!m||!m.oldCode) return null;
+      const rO=S.old.find(r=>r.code===m.oldCode);
+      if(!rO) return null;
+      return {rN,rO,score:m.score||0};
+    })
+    .filter(Boolean)
+    .sort((a,b)=>a.rN.semestre-b.rN.semestre||a.rN.code.localeCompare(b.rN.code));
+
+  let lastSem=null,idx=0;
+  rowsData.forEach(({rN,rO,score:s})=>{
+    if(rN.semestre!==lastSem){
+      lastSem=rN.semestre;
+      drawSemBanner(lastSem);
+      idx=0;
+    }
+    if(y>H-12){doc.addPage();y=20;drawTableHeader();}
     const rc=s>=55?[220,252,231]:s>=35?[254,249,195]:s>=20?[254,215,170]:[241,245,249];
     if(idx%2===0){doc.setFillColor(...rc);doc.rect(10,y-4,W-20,7,'F');}
-    const tr=(t,n)=>String(t||'').replace(/[^\x20-\x7E\xA0-\xFF]/g,'?').slice(0,n);
-    [[13,rN.code,28],[41,tr(rN.titre,36),52],[93,rO.code,28],[121,tr(rO.titre,32),48],
-     [169,String(rO.semestre),8],[177,tr(rO.parcours_code||'TC',10),14],[191,s.toFixed(1)+'%',20],[211,tr(resourceFamily(rN),28),42]]
+    idx++;
+    doc.setTextColor(30,41,59);
+    [[13,rN.code,26],[39,sanitizeForPdf(rN.titre,32),50],[89,rO.code,26],[115,sanitizeForPdf(rO.titre,28),44],
+     [159,String(rO.semestre),8],[167,sanitizeForPdf(rO.parcours_code||'TC',9),13],[180,s.toFixed(1)+'%',18],[198,sanitizeForPdf(resourceFamily(rN),24),40]]
     .forEach(([x,txt])=>doc.text(String(txt),x,y));
+    // R41: pastilles pleines plutôt que des glyphes ⚠ (hors font de base,
+    // rendu peu fiable) — un carré coloré identifie sans ambiguïté les
+    // trois cas signalés comme mal repérables jusqu'ici.
+    const semChanged=(rO.semestre%2)!==(rN.semestre%2);
+    doc.setFillColor(...(semChanged?[217,119,6]:[226,232,240]));
+    doc.rect(flagColSemChange,y-3.2,3.2,3.2,'F');
+    doc.setFillColor(...(duplicatedOld.has(rO.code)?[220,38,38]:[226,232,240]));
+    doc.rect(flagColDup,y-3.2,3.2,3.2,'F');
+    const extraCodes=S.extras?.[rN.code]||[];
+    doc.setFillColor(...(extraCodes.length?[37,99,235]:[226,232,240]));
+    doc.rect(flagColMulti,y-3.2,3.2,3.2,'F');
     y+=7;
+    // R41: une nouvelle ressource associée à PLUSIEURS anciennes (partage
+    // exceptionnel, S.extras) n'apparaissait nulle part dans le rapport —
+    // ses ressources secondaires sont listées ici, en retrait sous la
+    // ligne principale.
+    extraCodes.forEach(oc=>{
+      const rOx=S.old.find(r=>r.code===oc); if(!rOx) return;
+      if(y>H-12){doc.addPage();y=20;drawTableHeader();}
+      doc.setFontSize(7);doc.setTextColor(37,99,235);
+      doc.text(sanitizeForPdf(`+ ${rOx.code}  ${rOx.titre}`,55),91,y);
+      doc.setFontSize(8);doc.setTextColor(30,41,59);
+      y+=5.5;
+    });
   });
+
+  // Légende des pastilles, en pied de dernière page
+  if(y>H-16) {doc.addPage();y=16;}
+  y+=3;
+  doc.setFillColor(217,119,6);doc.rect(14,y-3,3.2,3.2,'F');
+  doc.setTextColor(100,116,139);doc.setFontSize(7);
+  doc.text('Changement de semestre pair/impair (incidence calendaire)',19,y);
+  doc.setFillColor(220,38,38);doc.rect(120,y-3,3.2,3.2,'F');
+  doc.text('Ancienne ressource affectee a plusieurs nouvelles ressources',125,y);
+  y+=5;
+  doc.setFillColor(37,99,235);doc.rect(14,y-3,3.2,3.2,'F');
+  doc.text('Nouvelle ressource associee a plusieurs anciennes ressources (listees en retrait)',19,y);
+
   const np=doc.internal.getNumberOfPages();
-  for(let i=1;i<=np;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(150);doc.text(`Correspondances QLIO – ${d} – Page ${i}/${np}`,W/2,H-4,{align:'center'});}
+  for(let i=1;i<=np;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(150);doc.text(`Correspondances QLIO - ${d} - Page ${i}/${np}`,W/2,H-4,{align:'center'});}
   doc.save(`Correspondances_QLIO_${d.replace(/\//g,'-')}.pdf`);
 }
 
