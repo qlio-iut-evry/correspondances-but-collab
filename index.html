@@ -221,7 +221,7 @@ select:focus,input:focus{border-color:var(--P);box-shadow:0 0 0 2px rgba(var(--P
 .score-bar{height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;margin-top:3px}
 .score-bar-fill{height:100%;border-radius:3px}
 /* SEMESTER ACCORDION */
-.corr-kpis{display:grid;grid-template-columns:repeat(5,minmax(120px,1fr));gap:8px;margin-bottom:12px}
+.corr-kpis{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));gap:8px;margin-bottom:12px}
 .corr-kpi{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;box-shadow:0 1px 2px rgba(0,0,0,.04);border-left:4px solid #94a3b8}
 .corr-kpi strong{display:block;font-size:20px;line-height:1;color:#1e293b}
 .corr-kpi span{display:block;margin-top:4px;font-size:11px;color:#64748b}
@@ -4540,10 +4540,20 @@ function renderCorrEnhanced(){
   const matchedRows=rows.filter(r=>!r.noMatch);
   const scores=matchedRows.map(r=>r.score);
   const avg=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
-  const easy=rows.filter(r=>r.transition.bucket==='easy').length;
-  const mid=rows.filter(r=>r.transition.bucket==='mid').length;
-  const priority=rows.filter(r=>r.transition.bucket==='hard'||r.transition.bucket==='risk').length;
   const validated=rows.filter(r=>S.validations[r.rN.code]?.status==='valide').length;
+  // R34: 4 indicateurs remplaçant faciles/modérées/prioritaires (jugés peu
+  // utiles) — tous calculés sur `rows`, qui respecte déjà les filtres actifs
+  // (dont le semestre), donc se mettent à jour avec le filtre sans code
+  // supplémentaire.
+  const noMatchCount=rows.filter(r=>r.noMatch).length;
+  const hardCount=rows.filter(r=>!r.noMatch&&(r.transition.bucket==='hard'||r.transition.bucket==='risk')).length;
+  const matchedCount=matchedRows.length;
+  const crossSemCount=matchedRows.filter(r=>r.rO.semestre!==r.rN.semestre).length;
+  const crossSemRate=matchedCount?Math.round(crossSemCount/matchedCount*100):0;
+  const oldUsageInView={};
+  matchedRows.forEach(r=>{ oldUsageInView[r.rO.code]=(oldUsageInView[r.rO.code]||0)+1; });
+  const dupOldInView=Object.values(oldUsageInView).filter(c=>c>1).length;
+  const valRate=rows.length?Math.round(validated/rows.length*100):0;
   // Chips calculées sur TOUS les semestres (sans filtre semestre) pour rester visibles
   const allSemGroups={};
   S.new.forEach(rN=>{
@@ -4567,9 +4577,11 @@ function renderCorrEnhanced(){
     <div class="corr-kpis">
       <div class="corr-kpi" style="border-left-color:#1e3a5f"><strong>${rows.length}</strong><span>correspondances affichées</span></div>
       <div class="corr-kpi" style="border-left-color:#16a34a"><strong>${avg.toFixed(1)}%</strong><span>score moyen</span></div>
-      <div class="corr-kpi" style="border-left-color:#15803d"><strong>${easy}</strong><span>transitions faciles</span></div>
-      <div class="corr-kpi" style="border-left-color:#d97706"><strong>${mid}</strong><span>transitions modérées</span></div>
-      <div class="corr-kpi" style="border-left-color:#ea580c"><strong>${priority}</strong><span>prioritaires</span></div>
+      <div class="corr-kpi" style="border-left-color:#94a3b8"><strong>${noMatchCount}</strong><span>sans correspondance</span></div>
+      <div class="corr-kpi" style="border-left-color:#ea580c"><strong>${hardCount}</strong><span>transitions difficiles</span></div>
+      <div class="corr-kpi" style="border-left-color:#d97706" title="${crossSemCount}/${matchedCount} correspondances appariées avec un semestre différent"><strong>${crossSemRate}%</strong><span>changement de semestre</span></div>
+      <div class="corr-kpi" style="border-left-color:#dc2626"><strong>${dupOldInView}</strong><span>anciennes affectées ≥2 fois</span></div>
+      <div class="corr-kpi" style="border-left-color:#16a34a" title="${validated}/${rows.length} correspondances validées"><strong>${valRate}%</strong><span>taux de validation</span></div>
     </div>
     <div style="font-size:12px;color:#64748b">
       <strong>${validated}</strong> validées ·
