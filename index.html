@@ -6325,9 +6325,42 @@ function subscribeToRealtime() {
       event: '*', schema: 'public', table: 'extras',
       filter: `project_id=eq.${CURRENT_PROJECT_ID}`
     }, onRemoteChange)
-    .subscribe(status => {
+    // R58: présence collaborative — jusqu'ici rien n'indiquait qu'un
+    // collègue travaillait sur le même projet en ce moment, donc deux
+    // personnes pouvaient modifier la même ressource simultanément sans le
+    // savoir (seul recours après coup : la notification de changement
+    // distant). Presence de Supabase Realtime est fait pour ça : état
+    // éphémère par canal, propagé aux autres clients, retiré automatiquement
+    // à la déconnexion — pas besoin de table ni de mécanisme de heartbeat
+    // maison.
+    .on('presence', { event: 'sync' }, renderPresence)
+    .subscribe(async status => {
       updateSyncIndicator(status === 'SUBSCRIBED' ? 'online' : 'connecting');
+      if (status === 'SUBSCRIBED' && CURRENT_USER) {
+        await _realtimeChannel.track({
+          user_id: CURRENT_USER.id,
+          display_name: CURRENT_USER.display_name || CURRENT_USER.email
+        });
+      }
     });
+}
+
+/** Affiche qui d'autre travaille actuellement sur ce projet (présence Realtime). */
+function renderPresence(){
+  const el = document.getElementById('presence-indicator');
+  if (!el || !_realtimeChannel) return;
+  const state = _realtimeChannel.presenceState();
+  // Un même utilisateur peut apparaître sous plusieurs clés s'il a plusieurs
+  // onglets ouverts — dédoublonné par user_id pour ne compter chaque
+  // personne qu'une fois.
+  const seen = new Map();
+  Object.values(state).flat().forEach(p => { if (p.user_id) seen.set(p.user_id, p); });
+  const others = [...seen.values()].filter(p => p.user_id !== CURRENT_USER?.id);
+  if (!others.length) { el.style.display = 'none'; return; }
+  const names = others.map(p => p.display_name || '?');
+  el.style.display = '';
+  el.textContent = `👥 ${others.length===1 ? '1 collègue' : others.length+' collègues'} en ligne`;
+  el.title = 'Également sur ce projet : ' + names.join(', ');
 }
 
 // R56: la notification de changement distant ne citait que le nom de la
@@ -6948,6 +6981,7 @@ function renderUserBadge(user) {
   ui.innerHTML = `
     <span id="project-badge" onclick="showProjectModal()" title="Cliquer pour changer de projet" style="display:none;cursor:pointer;background:rgba(255,255,255,.2);color:#fff;
       font-size:11px;padding:3px 10px;border-radius:12px;font-weight:600;white-space:nowrap"></span>
+    <span id="presence-indicator" style="display:none;font-size:11px;color:rgba(255,255,255,.9);white-space:nowrap;background:rgba(255,255,255,.12);padding:3px 9px;border-radius:12px;cursor:default"></span>
     <button onclick="reloadCurrentProject()" title="Recharger les données du projet depuis Supabase" style="background:rgba(255,255,255,.1);color:rgba(255,255,255,.8);
       border:1px solid rgba(255,255,255,.2);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer">🔄</button>
     <span id="sync-indicator" style="font-size:11px;color:rgba(255,255,255,.8);white-space:nowrap"></span>
