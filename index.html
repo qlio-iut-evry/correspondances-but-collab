@@ -328,9 +328,9 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
   <!-- Groupe : Export -->
   <div style="display:flex;align-items:center;gap:4px;border-right:1px solid rgba(255,255,255,.2);padding-right:12px;margin-right:4px">
     <span style="font-size:10px;color:rgba(255,255,255,.5);margin-right:4px;text-transform:uppercase;letter-spacing:.5px">Export</span>
-    <button class="hdr-btn" onclick="exportExcel()" title="Exporter en Excel — 5 feuilles : Correspondances, Ancien programme, Nouveau programme, Non affectées, et Réimport CSV (format identique au template importable)">📊 Excel</button>
-    <button class="hdr-btn" onclick="exportCsvReimport()" title="Exporter les correspondances actives en CSV 14 colonnes — directement réinjectable dans l'outil via l'onglet Données" style="background:rgba(34,197,94,.25)">♻️ CSV réimport</button>
+    <button class="hdr-btn" onclick="exportExcel()" title="Exporter en Excel — 5 feuilles : Correspondances, Ancien programme, Nouveau programme, Non affectées, et un CSV 14 colonnes du tableau (lecture seule, non réimportable)">📊 Excel</button>
     <button class="hdr-btn" onclick="exportPDF()" title="Exporter le tableau de correspondances en PDF paysage">📄 PDF</button>
+    <button class="hdr-btn" onclick="exportProjectJSON()" title="Sauvegarder le projet complet (overrides, validations, pondérations, parcours actifs...) dans un fichier — à utiliser avec « Importer un projet » depuis le sélecteur de projet" style="background:rgba(34,197,94,.25)">📦 Exporter le projet</button>
   </div>
   <!-- Aide -->
   <div class="theme-btn-wrap" title="Choisir un thème de couleur pour l'interface">
@@ -3437,6 +3437,41 @@ function exportPDF(){
   doc.save(`Correspondances_QLIO_${d.replace(/\//g,'-')}.pdf`);
 }
 
+// R40: export JSON complet du projet actif — overrides, validations, tous
+// les overrides de champ (type/famille/mots-clés/compétences), extras et
+// réglages (pondérations, parcours actifs). Sert de sauvegarde et de
+// moyen de transmettre le projet ; à recharger via "Importer un projet"
+// (sélecteur de projet), qui recrée toujours un NOUVEAU projet à partir
+// de ce fichier — jamais d'écrasement d'un projet existant.
+function exportProjectJSON(){
+  if(!CURRENT_PROJECT_ID){ alert('Sélectionnez d\'abord un projet.'); return; }
+  const proj=(window._projects||[]).find(p=>p.id===CURRENT_PROJECT_ID);
+  const payload={
+    formatVersion:1,
+    exportedAt:new Date().toISOString(),
+    meta:{
+      name:proj?.name||((S.oldName||'?')+' → '+(S.newName||'?')),
+      old_program_name:proj?.old_program_name||S.oldName||'',
+      new_program_name:proj?.new_program_name||S.newName||'',
+      weights:S.weights||null,
+      active_parcours:[...getActiveParcours()]
+    },
+    overrides:S.overrides||{},
+    validations:S.validations||{},
+    kwOverrides:S.kwOverrides||{},
+    familyOverrides:S.familyOverrides||{},
+    typeOverrides:S.typeOverrides||{},
+    competenceOverrides:S.competenceOverrides||{},
+    extras:S.extras||{}
+  };
+  const blob=new Blob([JSON.stringify(payload,null,1)],{type:'application/json;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  const d2=new Date().toLocaleDateString('fr-FR').replace(/\//g,'-');
+  a.download='Projet_'+String(payload.meta.name).replace(/[^a-zA-Z0-9_\-]+/g,'_')+'_'+d2+'.json';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);
+}
+
 // ===== PDF LOADING =====
 function onDrop(e,side){e.preventDefault();const f=e.dataTransfer.files[0];if(f)processFile(f,side);}
 function onFile(e,side){const f=e.target.files[0];if(f)processFile(f,side);}
@@ -5014,60 +5049,14 @@ function processCsvIA(file){
 }
 
 
-// ===== EXPORT CSV REIMPORT (14 colonnes, UTF-8 BOM, sep ;) =====
-function exportCsvReimport(){
-  if(!S.loaded){alert('Chargez d\'abord les données.');return;}
-  const nbMatch=Object.keys(S.matching||{}).length;
-  if(nbMatch===0){alert('Aucune correspondance calculée. Rechargez la page puis réessayez.');return;}
-  const HDR=[
-    'Ancien parcours','Ancienne ressource','Ancien intitulé',
-    'Nouvelle ressource possible','Nouvel intitulé','Rang',
-    'Taux de correspondance','Niveau','Compétences communes',
-    'Mots clés communs','Compétences ancienne','Compétences nouvelle',
-    'Mots clés ancienne','Mots clés nouvelle'
-  ];
-  const lines=[HDR.join(';')];
-  // Sécuriser les valeurs : remplacer les ; internes par une virgule
-  const cell=v=>(v||'').toString().replace(/;/g,',').replace(/\r?\n/g,' ');
-  S.new.forEach(rN=>{
-    const m=S.matching[rN.code]; if(!m) return;
-    const rO=S.old.find(r=>r.code===m.oldCode); if(!rO) return;
-    const row=S.rows?S.rows.find(r=>r.oldCode===rO.code&&r.newCode===rN.code):null;
-    const sc=row?adjScore(row):(m.score||0);
-    const niv=sc>=70?'forte':sc>=50?'moyenne':sc>=30?'faible':'a verifier';
-    // Compétences communes = intersection
-    const compCom=(()=>{
-      if(!row) return '';
-      const aList=(row.oldCompetencies||'').split(/[;|]/).map(s=>s.trim()).filter(Boolean);
-      const nText=row.newCompetencies||'';
-      return aList.filter(s=>nText.includes(s)).join(', ');
-    })();
-    lines.push([
-      cell(rO.parcours||rO.oldPath||rO.parcours_code||'Tronc commun ancien'),
-      cell(rO.code),
-      cell(rO.titre),
-      cell(rN.code),
-      cell(rN.titre),
-      1,
-      parseFloat(sc.toFixed(1)),
-      niv,
-      cell(compCom),
-      cell(row?(row.sharedKeywords||row.sharedWords||''):''),
-      cell(row?(row.oldCompetencies||rO.competences.join(', ')):rO.competences.join(', ')),
-      cell(row?(row.newCompetencies||rN.competences.join(', ')):rN.competences.join(', ')),
-      cell(row?(row.oldKeywords||rO.mots_cles.join(', ')):rO.mots_cles.join(', ')),
-      cell(row?(row.newKeywords||rN.mots_cles.join(', ')):rN.mots_cles.join(', '))
-    ].join(';'));
-  });
-  // BOM UTF-8 + CRLF
-  const csv='﻿'+lines.join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  const d=new Date().toLocaleDateString('fr-FR').replace(/\//g,'-');
-  a.download='Correspondances_reimport_'+d+'.csv';
-  document.body.appendChild(a);a.click();document.body.removeChild(a);
-}
+// R40: exportCsvReimport() a été retiré — son bouton promettait une
+// réinjection ("directement réinjectable dans l'outil via l'onglet
+// Données") qu'aucun code ne réalisait, et le format (correspondances
+// seules) n'aurait de toute façon pas suffi à restaurer un projet
+// (ni overrides de type/famille/mots-clés/compétences, ni validations,
+// ni pondérations, ni parcours actifs). Remplacé par exportProjectJSON()
+// + importProjectFile(), qui couvrent le vrai besoin de sauvegarde/
+// transmission du projet.
 
 
 // Raccourci clavier Ctrl+Z = Annuler la derniere action
@@ -5959,6 +5948,17 @@ function showProjectModal() {
           </button>
         </div>
       </div>
+
+      <div style="border-top:1px solid #f1f5f9;padding-top:16px;margin-top:16px">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">
+          Importer un projet
+        </div>
+        <p style="font-size:11px;color:#64748b;margin:0 0 8px">Depuis un fichier généré par « 📦 Exporter le projet » — crée toujours un nouveau projet, jamais d'écrasement.</p>
+        <label style="display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px dashed #cbd5e1;border-radius:7px;padding:10px;font-size:13px;color:#475569;cursor:pointer;font-weight:600">
+          📂 Choisir un fichier .json
+          <input type="file" accept=".json" style="display:none" onchange="importProjectFile(this)"/>
+        </label>
+      </div>
     </div>`;
 
   document.body.appendChild(overlay);
@@ -6039,6 +6039,99 @@ async function cloneProject(sourceProjectId){
     showToast('✅ Projet cloné : "' + newName.trim() + '"', 'success');
   } catch(e) {
     alert('Erreur lors du clonage : ' + e.message);
+  }
+}
+
+// R40: recrée un projet à partir d'un fichier généré par
+// exportProjectJSON() — même principe que cloneProject() (nouveau projet +
+// copie des tables liées), mais depuis un fichier plutôt qu'un projet
+// Supabase existant. Crée TOUJOURS un nouveau projet, jamais d'écrasement
+// d'un projet existant.
+async function importProjectFile(input){
+  const file = input.files?.[0];
+  if (!file) return;
+  input.value = '';
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch(e) {
+    alert('Fichier invalide (JSON illisible) : ' + e.message);
+    return;
+  }
+  if (!payload || typeof payload !== 'object' || !payload.meta) {
+    alert('Ce fichier ne ressemble pas à un export de projet valide.');
+    return;
+  }
+  const defaultName = (payload.meta.name || 'Projet importé') + ' (import)';
+  const newName = prompt('Nom du projet importé :', defaultName);
+  if (!newName || !newName.trim()) return;
+
+  try {
+    const { data: proj, error: e1 } = await db.from('projects').insert({
+      name: newName.trim(),
+      old_program_name: payload.meta.old_program_name || '',
+      new_program_name: payload.meta.new_program_name || '',
+      weights: payload.meta.weights || null,
+      active_parcours: payload.meta.active_parcours || null,
+      created_by: CURRENT_USER.id
+    }).select().single();
+    if (e1) throw e1;
+
+    const batches = [];
+    const ov = Object.entries(payload.overrides || {});
+    if (ov.length) batches.push(['overrides', ov.map(([new_code, old_code]) => ({
+      project_id: proj.id, new_code, old_code: old_code || null, updated_by: CURRENT_USER.id
+    }))]);
+
+    const val = Object.entries(payload.validations || {});
+    if (val.length) batches.push(['validations', val.map(([new_code, v]) => ({
+      project_id: proj.id, new_code, status: v.status, comment: v.comment || null,
+      validated_old_code: v.validatedOldCode || null, updated_by: CURRENT_USER.id
+    }))]);
+
+    const kw = Object.entries(payload.kwOverrides || {});
+    if (kw.length) batches.push(['kw_overrides', kw.map(([key, keywords]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, keywords, updated_by: CURRENT_USER.id};
+    })]);
+
+    const fam = Object.entries(payload.familyOverrides || {});
+    if (fam.length) batches.push(['family_overrides', fam.map(([key, family]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, family, updated_by: CURRENT_USER.id};
+    })]);
+
+    const typ = Object.entries(payload.typeOverrides || {});
+    if (typ.length) batches.push(['type_overrides', typ.map(([key, type]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, is_transversal: type==='transversal', updated_by: CURRENT_USER.id};
+    })]);
+
+    const comp = Object.entries(payload.competenceOverrides || {});
+    if (comp.length) batches.push(['competence_overrides', comp.map(([key, competences]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, competences, updated_by: CURRENT_USER.id};
+    })]);
+
+    const extrasRows = Object.entries(payload.extras || {}).flatMap(([new_code, oldCodes]) =>
+      (oldCodes || []).map(old_code => ({project_id: proj.id, new_code, old_code, updated_by: CURRENT_USER.id}))
+    );
+    if (extrasRows.length) batches.push(['extras', extrasRows]);
+
+    for (const [table, rows] of batches) {
+      const { error } = await db.from(table).insert(rows);
+      if (error) throw error;
+    }
+
+    window._projects = window._projects || [];
+    window._projects.unshift(proj);
+    renderProjectSelector();
+    document.getElementById('project-modal-overlay')?.remove();
+    await selectProject(proj.id);
+    setProjectBadge(newName.trim());
+    showToast('✅ Projet "' + newName.trim() + '" importé', 'success');
+  } catch(e) {
+    alert('Erreur lors de l\'import : ' + e.message);
   }
 }
 

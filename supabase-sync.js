@@ -728,6 +728,17 @@ function showProjectModal() {
           </button>
         </div>
       </div>
+
+      <div style="border-top:1px solid #f1f5f9;padding-top:16px;margin-top:16px">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">
+          Importer un projet
+        </div>
+        <p style="font-size:11px;color:#64748b;margin:0 0 8px">Depuis un fichier généré par « 📦 Exporter le projet » — crée toujours un nouveau projet, jamais d'écrasement.</p>
+        <label style="display:flex;align-items:center;justify-content:center;gap:6px;border:1.5px dashed #cbd5e1;border-radius:7px;padding:10px;font-size:13px;color:#475569;cursor:pointer;font-weight:600">
+          📂 Choisir un fichier .json
+          <input type="file" accept=".json" style="display:none" onchange="importProjectFile(this)"/>
+        </label>
+      </div>
     </div>`;
 
   document.body.appendChild(overlay);
@@ -808,6 +819,99 @@ async function cloneProject(sourceProjectId){
     showToast('✅ Projet cloné : "' + newName.trim() + '"', 'success');
   } catch(e) {
     alert('Erreur lors du clonage : ' + e.message);
+  }
+}
+
+// R40: recrée un projet à partir d'un fichier généré par
+// exportProjectJSON() — même principe que cloneProject() (nouveau projet +
+// copie des tables liées), mais depuis un fichier plutôt qu'un projet
+// Supabase existant. Crée TOUJOURS un nouveau projet, jamais d'écrasement
+// d'un projet existant.
+async function importProjectFile(input){
+  const file = input.files?.[0];
+  if (!file) return;
+  input.value = '';
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch(e) {
+    alert('Fichier invalide (JSON illisible) : ' + e.message);
+    return;
+  }
+  if (!payload || typeof payload !== 'object' || !payload.meta) {
+    alert('Ce fichier ne ressemble pas à un export de projet valide.');
+    return;
+  }
+  const defaultName = (payload.meta.name || 'Projet importé') + ' (import)';
+  const newName = prompt('Nom du projet importé :', defaultName);
+  if (!newName || !newName.trim()) return;
+
+  try {
+    const { data: proj, error: e1 } = await db.from('projects').insert({
+      name: newName.trim(),
+      old_program_name: payload.meta.old_program_name || '',
+      new_program_name: payload.meta.new_program_name || '',
+      weights: payload.meta.weights || null,
+      active_parcours: payload.meta.active_parcours || null,
+      created_by: CURRENT_USER.id
+    }).select().single();
+    if (e1) throw e1;
+
+    const batches = [];
+    const ov = Object.entries(payload.overrides || {});
+    if (ov.length) batches.push(['overrides', ov.map(([new_code, old_code]) => ({
+      project_id: proj.id, new_code, old_code: old_code || null, updated_by: CURRENT_USER.id
+    }))]);
+
+    const val = Object.entries(payload.validations || {});
+    if (val.length) batches.push(['validations', val.map(([new_code, v]) => ({
+      project_id: proj.id, new_code, status: v.status, comment: v.comment || null,
+      validated_old_code: v.validatedOldCode || null, updated_by: CURRENT_USER.id
+    }))]);
+
+    const kw = Object.entries(payload.kwOverrides || {});
+    if (kw.length) batches.push(['kw_overrides', kw.map(([key, keywords]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, keywords, updated_by: CURRENT_USER.id};
+    })]);
+
+    const fam = Object.entries(payload.familyOverrides || {});
+    if (fam.length) batches.push(['family_overrides', fam.map(([key, family]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, family, updated_by: CURRENT_USER.id};
+    })]);
+
+    const typ = Object.entries(payload.typeOverrides || {});
+    if (typ.length) batches.push(['type_overrides', typ.map(([key, type]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, is_transversal: type==='transversal', updated_by: CURRENT_USER.id};
+    })]);
+
+    const comp = Object.entries(payload.competenceOverrides || {});
+    if (comp.length) batches.push(['competence_overrides', comp.map(([key, competences]) => {
+      const {side, code} = parseOvKey(key);
+      return {project_id: proj.id, resource_code: code, side, competences, updated_by: CURRENT_USER.id};
+    })]);
+
+    const extrasRows = Object.entries(payload.extras || {}).flatMap(([new_code, oldCodes]) =>
+      (oldCodes || []).map(old_code => ({project_id: proj.id, new_code, old_code, updated_by: CURRENT_USER.id}))
+    );
+    if (extrasRows.length) batches.push(['extras', extrasRows]);
+
+    for (const [table, rows] of batches) {
+      const { error } = await db.from(table).insert(rows);
+      if (error) throw error;
+    }
+
+    window._projects = window._projects || [];
+    window._projects.unshift(proj);
+    renderProjectSelector();
+    document.getElementById('project-modal-overlay')?.remove();
+    await selectProject(proj.id);
+    setProjectBadge(newName.trim());
+    showToast('✅ Projet "' + newName.trim() + '" importé', 'success');
+  } catch(e) {
+    alert('Erreur lors de l\'import : ' + e.message);
   }
 }
 
