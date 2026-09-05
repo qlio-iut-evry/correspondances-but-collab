@@ -4676,7 +4676,11 @@ function renderCorrEnhanced(){
   // supplémentaire.
   const noMatchCount=rows.filter(r=>r.noMatch).length;
   const matchedCount=matchedRows.length;
-  const crossSemCount=matchedRows.filter(r=>r.rO.semestre!==r.rN.semestre).length;
+  // R39: ne compte comme "changement de semestre" que les changements de
+  // PARITÉ (pair↔impair, ex. S4→S1) — un déplacement entre deux semestres de
+  // même parité (ex. S4→S2) reste dans la même période de l'année et n'a
+  // donc pas d'incidence sur la charge calendaire de l'enseignant.
+  const crossSemCount=matchedRows.filter(r=>(r.rO.semestre%2)!==(r.rN.semestre%2)).length;
   const crossSemRate=matchedCount?Math.round(crossSemCount/matchedCount*100):0;
   const oldUsageInView={};
   matchedRows.forEach(r=>{ oldUsageInView[r.rO.code]=(oldUsageInView[r.rO.code]||0)+1; });
@@ -4706,7 +4710,7 @@ function renderCorrEnhanced(){
       <div class="corr-kpi" style="border-left-color:#1e3a5f"><strong>${rows.length}</strong><span>correspondances affichées</span></div>
       <div class="corr-kpi" style="border-left-color:#16a34a"><strong>${avg.toFixed(1)}%</strong><span>score moyen</span></div>
       <div class="corr-kpi" style="border-left-color:#94a3b8"><strong>${noMatchCount}</strong><span>sans correspondance</span></div>
-      <div class="corr-kpi" style="border-left-color:#d97706" title="${crossSemCount}/${matchedCount} correspondances appariées avec un semestre différent"><strong>${crossSemRate}%</strong><span>changement de semestre</span></div>
+      <div class="corr-kpi" style="border-left-color:#d97706" title="${crossSemCount}/${matchedCount} correspondances passant d'un semestre pair à impair (ou l'inverse) — impact sur la charge calendaire de l'enseignant"><strong>${crossSemRate}%</strong><span>changement pair/impair</span></div>
       <div class="corr-kpi" style="border-left-color:#dc2626"><strong>${dupOldInView}</strong><span>anciennes affectées ≥2 fois</span></div>
       <div class="corr-kpi" style="border-left-color:#16a34a" title="${validated}/${rows.length} correspondances validées"><strong>${valRate}%</strong><span>taux de validation</span></div>
     </div>
