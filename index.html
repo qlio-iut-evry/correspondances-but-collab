@@ -1856,6 +1856,18 @@ function recomputeMatching(){
     }
   }
 
+  // R31: les ressources anciennes attachées comme "extras" (partage
+  // exceptionnel secondaire, S.extras[nc]) doivent être protégées comme les
+  // affectations principales — sinon rien n'empêche la passe gloutonne de
+  // les redistribuer ailleurs au recalcul suivant. Elles restent affichées
+  // sous leur ressource principale (S.extras) mais disparaissaient en
+  // silence de leur affectation d'origine sans jamais être vraiment
+  // libérées : la ressource ancienne se retrouvait attachée aux deux à la
+  // fois plutôt que déplacée.
+  Object.values(S.extras||{}).forEach(codes=>{
+    (codes||[]).forEach(oc=>{ if(oc) usedOld.add(oc); });
+  });
+
   // Greedy bijective — bloque les paires transversale ↔ métier
   for(const r of eligible){
     if(tOld(r.oldCode) !== tNew(r.newCode)) continue;
