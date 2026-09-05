@@ -85,7 +85,7 @@
     <div class="logo-sub">Espace collaboratif — Équipe pédagogique QLIO</div>
   </div>
 
-  <div class="tabs">
+  <div class="tabs" id="auth-tabs">
     <div class="tab active" id="tab-login" onclick="switchTab('login')">Connexion</div>
     <div class="tab" id="tab-signup" onclick="switchTab('signup')">Créer un compte</div>
   </div>
@@ -100,6 +100,9 @@
       <label>Mot de passe</label>
       <input type="password" id="login-pwd" placeholder="••••••••" autocomplete="current-password"
         onkeydown="if(event.key==='Enter') doLogin()"/>
+      <div style="text-align:right;margin-top:6px">
+        <a href="#" onclick="event.preventDefault();showForgotForm()" style="font-size:12px;color:#2d5a8e;text-decoration:none">Mot de passe oublié ?</a>
+      </div>
     </div>
     <button class="btn-primary" id="btn-login" onclick="doLogin()">Se connecter</button>
     <button class="btn-secondary" onclick="doMagicLink()">🔗 Connexion par lien e-mail (sans mot de passe)</button>
@@ -124,6 +127,35 @@
     <button class="btn-primary" id="btn-signup" onclick="doSignup()">Créer mon compte</button>
     <div id="signup-msg" class="msg"></div>
   </div>
+
+  <!-- FORMULAIRE MOT DE PASSE OUBLIÉ -->
+  <div id="form-forgot" style="display:none">
+    <h2>Mot de passe oublié</h2>
+    <div class="field">
+      <label>Adresse e-mail</label>
+      <input type="email" id="forgot-email" placeholder="prenom.nom@univ.fr" autocomplete="email"
+        onkeydown="if(event.key==='Enter') doForgotPassword()"/>
+    </div>
+    <button class="btn-primary" id="btn-forgot" onclick="doForgotPassword()">Envoyer le lien de réinitialisation</button>
+    <button class="btn-secondary" onclick="showLoginForm()">← Retour à la connexion</button>
+    <div id="forgot-msg" class="msg"></div>
+  </div>
+
+  <!-- FORMULAIRE NOUVEAU MOT DE PASSE (après clic sur le lien reçu par e-mail) -->
+  <div id="form-reset" style="display:none">
+    <h2>Choisir un nouveau mot de passe</h2>
+    <div class="field">
+      <label>Nouveau mot de passe (8 caractères minimum)</label>
+      <input type="password" id="reset-pwd" placeholder="••••••••" autocomplete="new-password"/>
+    </div>
+    <div class="field">
+      <label>Confirmer le nouveau mot de passe</label>
+      <input type="password" id="reset-pwd2" placeholder="••••••••" autocomplete="new-password"
+        onkeydown="if(event.key==='Enter') doResetPassword()"/>
+    </div>
+    <button class="btn-primary" id="btn-reset" onclick="doResetPassword()">Valider le nouveau mot de passe</button>
+    <div id="reset-msg" class="msg"></div>
+  </div>
 </div>
 
 <script>
@@ -134,13 +166,47 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_ANON);
 
+// Le lien reçu par e-mail (doForgotPassword) ramène ici avec un jeton de
+// récupération dans l'URL ; le SDK Supabase le détecte tout seul au
+// chargement de la page et émet cet événement — c'est le seul signal
+// fiable pour savoir qu'il faut afficher le formulaire "nouveau mot de
+// passe" plutôt que l'écran de connexion normal.
+db.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    document.getElementById('auth-tabs').style.display = 'none';
+    document.getElementById('form-login').style.display  = 'none';
+    document.getElementById('form-signup').style.display = 'none';
+    document.getElementById('form-forgot').style.display = 'none';
+    document.getElementById('form-reset').style.display  = '';
+  }
+});
+
 // Pas de redirection automatique — l'utilisateur choisit explicitement
 
 function switchTab(tab) {
+  document.getElementById('auth-tabs').style.display = '';
   document.getElementById('form-login').style.display  = tab==='login'  ? '' : 'none';
   document.getElementById('form-signup').style.display = tab==='signup' ? '' : 'none';
+  document.getElementById('form-forgot').style.display = 'none';
+  document.getElementById('form-reset').style.display  = 'none';
   document.getElementById('tab-login').classList.toggle('active',  tab==='login');
   document.getElementById('tab-signup').classList.toggle('active', tab==='signup');
+}
+
+// Mot de passe oublié — écran à part, pas un 3e onglet de la barre
+// Connexion/Créer un compte : la barre d'onglets est masquée pendant ce flux
+// pour ne pas donner l'impression qu'on peut y revenir en cliquant dessus.
+function showForgotForm() {
+  document.getElementById('auth-tabs').style.display = 'none';
+  document.getElementById('form-login').style.display  = 'none';
+  document.getElementById('form-signup').style.display = 'none';
+  document.getElementById('form-forgot').style.display = '';
+  document.getElementById('form-reset').style.display  = 'none';
+  document.getElementById('forgot-email').value = document.getElementById('login-email').value;
+}
+
+function showLoginForm() {
+  switchTab('login');
 }
 
 function showMsg(id, type, text) {
@@ -171,6 +237,40 @@ async function doMagicLink() {
   const { error } = await db.auth.signInWithOtp({ email, options: { emailRedirectTo: 'https://qlio-iut-evry.github.io/correspondances-but-collab/index.html' } });
   if (error) showMsg('login-msg','error', error.message);
   else showMsg('login-msg','success', `✅ Lien de connexion envoyé à ${email} — vérifiez votre boîte mail`);
+}
+
+async function doForgotPassword() {
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email) { showMsg('forgot-msg','error','Entrez votre adresse e-mail'); return; }
+  const btn = document.getElementById('btn-forgot');
+  btn.disabled = true; btn.textContent = 'Envoi…';
+  // Ramène sur auth.html (pas index.html) : c'est ici que vit le formulaire
+  // "nouveau mot de passe", affiché automatiquement via l'événement
+  // PASSWORD_RECOVERY dès que le SDK détecte le jeton dans l'URL de retour.
+  const { error } = await db.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://qlio-iut-evry.github.io/correspondances-but-collab/auth.html'
+  });
+  btn.disabled = false; btn.textContent = 'Envoyer le lien de réinitialisation';
+  if (error) showMsg('forgot-msg','error', error.message);
+  else showMsg('forgot-msg','success', `✅ Un lien de réinitialisation a été envoyé à ${email} — vérifiez votre boîte mail (et vos spams).`);
+}
+
+async function doResetPassword() {
+  const pwd  = document.getElementById('reset-pwd').value;
+  const pwd2 = document.getElementById('reset-pwd2').value;
+  if (!pwd || !pwd2) { showMsg('reset-msg','error','Les deux champs sont requis'); return; }
+  if (pwd.length < 8) { showMsg('reset-msg','error','Le mot de passe doit faire au moins 8 caractères'); return; }
+  if (pwd !== pwd2) { showMsg('reset-msg','error','Les deux mots de passe ne correspondent pas'); return; }
+  const btn = document.getElementById('btn-reset');
+  btn.disabled = true; btn.textContent = 'Enregistrement…';
+  const { error } = await db.auth.updateUser({ password: pwd });
+  if (error) {
+    showMsg('reset-msg','error', error.message);
+    btn.disabled = false; btn.textContent = 'Valider le nouveau mot de passe';
+  } else {
+    showMsg('reset-msg','success', '✅ Mot de passe mis à jour ! Redirection…');
+    setTimeout(() => { window.location.href = 'index.html'; }, 1500);
+  }
 }
 
 async function doSignup() {

@@ -34,7 +34,7 @@ sa logique métier d'origine**.
   `supabase-sync.js` dans `index.html` — voir §4) et `test.js` (filet de
   tests minimal — voir §7).
 - **Frontend** : une seule page applicative `index.html`, servie statiquement.
-- **Auth** : Supabase Auth (email/mot de passe + lien magique OTP), via le SDK
+- **Auth** : Supabase Auth (email/mot de passe + lien magique OTP + réinitialisation de mot de passe par e-mail), via le SDK
   officiel `@supabase/supabase-js@2` :
   - `auth.html` le charge depuis le CDN jsDelivr (`<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">`).
   - `index.html`, lui, embarque le SDK **en dur** (bundle UMD `supabase-js@2.108.1`
@@ -56,7 +56,7 @@ sa logique métier d'origine**.
 ```
 correspondances-but-collab/
 ├── README.md            Guide d'installation pas-à-pas (Supabase, déploiement)
-├── auth.html             Page de connexion / inscription (email+mdp, magic link)
+├── auth.html             Page de connexion / inscription (email+mdp, magic link, mot de passe oublié)
 ├── index.html            Appli principale — bundle auto-suffisant (app + SDK + sync)
 ├── build.js               Réinjecte supabase-sync.js dans index.html (voir ci-dessous)
 ├── test.js                Filet de tests minimal (voir §7)
