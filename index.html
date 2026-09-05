@@ -1658,6 +1658,9 @@ function resourceFamily(r){
   // autre famille (ex. "Numerique & SI") ne serait jamais reclass\u00e9e ici.
   if(f==='Transformation digitale') return 'Transformation digitale';
   if(!hasFamOverride && r.parcours_code==='MTD') return 'Transformation digitale';
+  // R37: même principe pour la famille "Management Production" (parcours MP).
+  if(f==='Management Production') return 'Management Production';
+  if(!hasFamOverride && r.parcours_code==='MP') return 'Management Production';
 
   // --- Mappages depuis les valeurs PDF existantes ---
   if(f==='Langues & Communication'||f==='Langue & Communication') return 'Langue & Communication';
@@ -3436,7 +3439,7 @@ function onFile(e,side){const f=e.target.files[0];if(f)processFile(f,side);}
 function dzEnter(el){el.classList.add('over');}
 function dzLeave(el){el.classList.remove('over');}
 function setFileSt(side,type,msg){const el=document.getElementById(`st-${side}-file`);if(!el)return;const clearBtn=type==='ok'?`<button onclick="clearSide('${side}')" style="margin-left:8px;background:none;border:none;cursor:pointer;color:#dc2626;font-size:13px;font-weight:700" title="Supprimer ce programme">✕</button>`:'';el.innerHTML=`<div class="status status-${type}" style="display:flex;align-items:center;justify-content:space-between">${eH(msg)}${clearBtn}</div>`;}
-const PRE_FAMILIES=['Langue & Communication','Numérique & Mathématiques','Gestion & Entreprise','Développement personnel','Production & Logistique','Qualite','Transformation digitale'];
+const PRE_FAMILIES=['Langue & Communication','Numérique & Mathématiques','Gestion & Entreprise','Développement personnel','Production & Logistique','Qualite','Transformation digitale','Management Production'];
 function showPreCompute(){
   const panel=document.getElementById('pre-compute-panel');
   if(!panel) return;
@@ -4188,7 +4191,7 @@ function renderCorrDetail(newCode){
 }
 
 // 6 familles fixes
-const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration','Transformation digitale'];
+const FAMS=['Langue & Communication','Développement personnel','Gestion & Entreprise','Numérique & Mathématiques','Production & Flux','Qualité & Amélioration','Transformation digitale','Management Production'];
 
 // R23: typeButtons/famButtons/kwEditor/competenceEditor sont partagés entre le
 // panneau latéral (renderCorrDetail) et la modale d'édition rapide
