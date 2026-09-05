@@ -63,7 +63,8 @@ correspondances-but-collab/
 ├── supabase-sync.js       Source éditable de la couche de synchro (voir §3)
 ├── supabase.min.js        Source éditable du SDK Supabase bundlé dans index.html
 └── sql/
-    └── schema.sql         Schéma Postgres complet (tables, RLS, policies, Realtime)
+    ├── schema.sql         Schéma complet pour un NOUVEAU projet Supabase
+    └── migrations/        Historique + futures évolutions de schéma (voir §6)
 ```
 
 `supabase-sync.js` et `supabase.min.js` sont les sources de référence de deux
@@ -111,11 +112,18 @@ garde-fou et reste recopié à la main — voir §6.
 
 ## 6. Fichiers critiques — ne pas modifier sans validation explicite
 
-- **`sql/schema.sql`** : toute modification doit être rejouée manuellement
-  dans Supabase (SQL Editor). Pas de système de migrations — un changement de
-  schéma non appliqué en base cassera silencieusement la synchro. Ne jamais
-  supprimer/renommer une colonne référencée par `supabase-sync.js` sans
-  vérifier les deux côtés.
+- **Schéma SQL** : toute modification doit être rejouée manuellement dans
+  Supabase (SQL Editor) — un changement de schéma non appliqué en base
+  cassera silencieusement la synchro. Ne jamais supprimer/renommer une
+  colonne référencée par `supabase-sync.js` sans vérifier les deux côtés.
+  Un changement de schéma après l'installation initiale est un nouveau
+  fichier `sql/migrations/000N_description.sql` (jamais un nouvel ajout à
+  la fin de `sql/schema.sql`, qui reste le script d'installation pour un
+  projet neuf) — voir `sql/migrations/README.md` pour le format exact et la
+  table `schema_migrations` qui trace ce qui a réellement été appliqué sur
+  le projet Supabase réel (`rackahuqnfekncnzrsge`). Comme toute exécution
+  SQL sur ce projet, donner le fichier à l'utilisateur pour qu'il
+  l'exécute — ne jamais le lancer soi-même.
 - **Clés Supabase codées en dur** (`SUPABASE_URL` / `SUPABASE_ANON` dans
   `auth.html` et `supabase-sync.js`) : la clé `anon` est publique par design
   (sécurité déléguée aux policies RLS), donc pas un secret à retirer — mais

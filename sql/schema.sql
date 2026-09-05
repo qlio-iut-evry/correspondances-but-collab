@@ -293,3 +293,28 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE extras;
   END IF;
 END $$;
+
+-- ════════════════════════════════════════════════════════════════
+-- SUIVI DES MIGRATIONS — voir sql/migrations/README.md
+-- ════════════════════════════════════════════════════════════════
+-- Jusqu'ici, tout changement de schéma s'accumulait dans ce seul fichier,
+-- rejoué manuellement dans Supabase SQL Editor, sans aucune trace de ce qui
+-- avait réellement été appliqué sur un projet Supabase donné (cf. CLAUDE.md
+-- §6). schema_migrations comble ça : chaque bloc ci-dessus correspond à un
+-- fichier numéroté dans sql/migrations/, et les lignes ci-dessous
+-- enregistrent que les 5 premiers sont déjà inclus dans ce fichier — un
+-- nouveau projet qui exécute schema.sql en entier les a donc déjà tous,
+-- inutile de les rejouer depuis sql/migrations/. Toute future évolution de
+-- schéma devient un nouveau fichier sql/migrations/000N_description.sql
+-- (voir le gabarit dans ce dossier) plutôt qu'un nouvel ajout sans fin ici.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version     TEXT PRIMARY KEY,
+  applied_at  TIMESTAMPTZ DEFAULT NOW()
+);
+INSERT INTO schema_migrations (version) VALUES
+  ('0001_init'),
+  ('0002_active_parcours'),
+  ('0003_competence_overrides'),
+  ('0004_side_column'),
+  ('0005_extras')
+ON CONFLICT (version) DO NOTHING;
