@@ -139,11 +139,13 @@ async function selectProject(projectId) {
   applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
-  // R51: pile d'annulation propre à ce projet (clé localStorage scopée par
-  // CURRENT_PROJECT_ID) — volontairement pas dans loadProjectState() elle-
-  // même, qui est aussi appelée à chaque changement distant reçu en temps
-  // réel (onRemoteChange) et ne doit pas réinitialiser l'undo en cours.
+  // R51/R57: piles d'annulation/rétablissement propres à ce projet (clés
+  // localStorage scopées par CURRENT_PROJECT_ID) — volontairement pas dans
+  // loadProjectState() elle-même, qui est aussi appelée à chaque changement
+  // distant reçu en temps réel (onRemoteChange) et ne doit pas réinitialiser
+  // l'undo/redo en cours.
   if (typeof restoreUndoStack === 'function') restoreUndoStack();
+  if (typeof restoreRedoStack === 'function') restoreRedoStack();
 }
 
 /** Recharge l'état du projet actuellement sélectionné depuis Supabase

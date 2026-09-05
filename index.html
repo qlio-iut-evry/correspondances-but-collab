@@ -405,8 +405,11 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
 
 </div>
 
-<!-- Bouton Annuler fixe — toujours visible en haut à droite quelle que soit la taille d'écran -->
-<button id="btn-undo" onclick="undoLast()" disabled title="Annuler la dernière action (Ctrl+Z)" style="position:fixed;right:20px;bottom:24px;z-index:300;background:#fff;color:#1e40af;border:1px solid #93c5fd;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;opacity:0.4;white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.18)">↩ Annuler</button>
+<!-- Boutons Annuler/Rétablir fixes — toujours visibles en bas à droite quelle que soit la taille d'écran -->
+<div style="position:fixed;right:20px;bottom:24px;z-index:300;display:flex;gap:8px">
+  <button id="btn-undo" onclick="undoLast()" disabled title="Annuler la dernière action (Ctrl+Z)" style="background:#fff;color:#1e40af;border:1px solid #93c5fd;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;opacity:0.4;white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.18)">↩ Annuler</button>
+  <button id="btn-redo" onclick="redoLast()" disabled title="Rétablir la dernière annulation (Ctrl+Y)" style="background:#fff;color:#1e40af;border:1px solid #93c5fd;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;opacity:0.4;white-space:nowrap;box-shadow:0 3px 12px rgba(0,0,0,.18)">↪ Rétablir</button>
+</div>
 
 <!-- STATS BAR -->
 <div class="stats-bar" id="statsBar" style="display:none">
@@ -1027,9 +1030,10 @@ var supabase=function(e){function t(e,t){var r={};for(var s in e)Object.prototyp
       </div>
       <p style="font-size:12px;color:#475569;margin-top:6px">Il n'y a plus de statut « à revoir » — seuls Validée / Refusée / (en attente) existent désormais.</p>
 
-      <h3 style="color:#1e3a5f;margin:16px 0 6px">11. Bouton Calculer et Annuler</h3>
-      <p><strong>&#9881;&#65039; Calculer</strong> &mdash; relance l'algorithme d'affectation complet sur toutes les ressources non verrouill&eacute;es. Les overrides manuels et validations sont pr&eacute;serv&eacute;s.</p>
-      <p><strong>&#8617; Annuler</strong> (coin bas-droit de l'&eacute;cran, ou <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:11px">Ctrl+Z</kbd>) &mdash; annule la derni&egrave;re action modifiant les correspondances. Jusqu'&agrave; <strong>20 niveaux</strong> d'annulation. Le bouton est gris&eacute; s'il n'y a rien &agrave; annuler.</p>
+      <h3 style="color:#1e3a5f;margin:16px 0 6px">11. Bouton Calculer, Annuler et Rétablir</h3>
+      <p><strong>⚙️ Calculer</strong> — relance l'algorithme d'affectation complet sur toutes les ressources non verrouillées. Les overrides manuels et validations sont préservés.</p>
+      <p><strong>↩ Annuler</strong> (coin bas-droit de l'écran, ou <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:11px">Ctrl+Z</kbd>) — annule la dernière action modifiant les correspondances. Jusqu'à <strong>20 niveaux</strong> d'annulation, persistés (survivent à un rechargement de page). Le bouton est grisé s'il n'y a rien à annuler.</p>
+      <p><strong>↪ Rétablir</strong> (à côté du bouton Annuler, ou <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:11px">Ctrl+Y</kbd> / <kbd style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:11px">Ctrl+Shift+Z</kbd>) — réapplique la dernière action annulée. Comme dans un éditeur de texte classique, effectuer une nouvelle action après une annulation efface ce qu'il y avait à rétablir.</p>
 
       <h3 style="color:#1e3a5f;margin:16px 0 6px">12. Pondération et profils</h3>
       <p>Le bouton <strong>⚙️ Pondération</strong> ouvre une modale pour ajuster les poids des 6 critères du §4 (0–100, doivent sommer à 100). 6 profils prédéfinis permettent d'explorer différentes stratégies (poids donnés dans l'ordre Code / Titre / Texte / Famille / Semestre / Mots-clés) :</p>
@@ -1681,7 +1685,7 @@ const BDATA={"old":[{"code":"R5.MTD.13","semestre":5,"parcours_code":"MTD","parc
 const S = {
   old: [], new: [], rows: [],
   oldName: '', newName: '',
-  validations: {}, history: [], undoStack: [], collisions: {},
+  validations: {}, history: [], undoStack: [], redoStack: [], collisions: {},
   matching: [],   // bijective: newCode -> best oldCode
   overrides: {},  // manual overrides: newCode -> oldCode
   extras: {},     // additional old codes associated to a new code
@@ -2245,6 +2249,7 @@ function refreshDataInfo(){
 }
 function onDataLoaded(hidePreCompute=false){
   restoreUndoStack();
+  restoreRedoStack();
   document.getElementById('parcBar').style.display='';
   document.getElementById('statsBar').style.display='';
   document.getElementById('data-info').style.display='';
@@ -3415,8 +3420,15 @@ function addHist(code,action,comment){
 function undoStorageKey(){
   return 'qlio_undo_stack_v1:' + (typeof CURRENT_PROJECT_ID!=='undefined' && CURRENT_PROJECT_ID ? CURRENT_PROJECT_ID : 'local');
 }
+// R57: même principe que undoStorageKey, pour la pile de rétablissement (redo).
+function redoStorageKey(){
+  return 'qlio_redo_stack_v1:' + (typeof CURRENT_PROJECT_ID!=='undefined' && CURRENT_PROJECT_ID ? CURRENT_PROJECT_ID : 'local');
+}
 function persistUndoStack(){
   try{ localStorage.setItem(undoStorageKey(), JSON.stringify(S.undoStack||[])); }catch(e){}
+}
+function persistRedoStack(){
+  try{ localStorage.setItem(redoStorageKey(), JSON.stringify(S.redoStack||[])); }catch(e){}
 }
 // Restaure la pile depuis localStorage — appelé au chargement initial des
 // données (mode local) et après la sélection d'un projet (mode connecté),
@@ -3431,35 +3443,80 @@ function restoreUndoStack(){
   }catch(e){ S.undoStack=[]; }
   updateUndoBtn();
 }
-function saveSnapshot(){
-  // Sauvegarde un instantané de l'état pour permettre l'annulation
-  if(!S.undoStack) S.undoStack=[];
-  S.undoStack.push(JSON.parse(JSON.stringify({
+function restoreRedoStack(){
+  try{
+    const raw=localStorage.getItem(redoStorageKey());
+    S.redoStack = raw ? JSON.parse(raw) : [];
+  }catch(e){ S.redoStack=[]; }
+  updateRedoBtn();
+}
+// R57: instantané de l'état courant, partagé par saveSnapshot/undoLast/
+// redoLast pour ne pas dupliquer trois fois la même liste de champs.
+function captureStateSnapshot(){
+  return JSON.parse(JSON.stringify({
     overrides:S.overrides||{},
     validations:S.validations||{},
     extras:S.extras||{},
     familyOverrides:S.familyOverrides||{},
     typeOverrides:S.typeOverrides||{}
-  })));
-  if(S.undoStack.length>20) S.undoStack.shift();
-  persistUndoStack();
-  updateUndoBtn();
+  }));
 }
-function undoLast(){
-  if(!S.undoStack||!S.undoStack.length){alert('Aucune action à annuler.');return;}
-  const snap=S.undoStack.pop();
+function applyStateSnapshot(snap){
   S.overrides=snap.overrides;
   S.validations=snap.validations;
   S.extras=snap.extras;
   S.familyOverrides=snap.familyOverrides||{};
   S.typeOverrides=snap.typeOverrides||{};
+}
+function saveSnapshot(){
+  // Sauvegarde un instantané de l'état pour permettre l'annulation
+  if(!S.undoStack) S.undoStack=[];
+  S.undoStack.push(captureStateSnapshot());
+  if(S.undoStack.length>20) S.undoStack.shift();
+  // R57: toute nouvelle action invalide la branche "à rétablir" — rétablir
+  // une annulation n'aurait plus de sens une fois qu'une action différente
+  // a été faite depuis (comportement standard undo/redo, ex. tout éditeur
+  // de texte : taper après un Ctrl+Z vide la pile de Ctrl+Y).
+  S.redoStack=[];
   persistUndoStack();
-  recomputeMatching();updateStats();renderCorr();updateUndoBtn();
+  persistRedoStack();
+  updateUndoBtn();
+  updateRedoBtn();
+}
+function undoLast(){
+  if(!S.undoStack||!S.undoStack.length){alert('Aucune action à annuler.');return;}
+  if(!S.redoStack) S.redoStack=[];
+  S.redoStack.push(captureStateSnapshot());
+  if(S.redoStack.length>20) S.redoStack.shift();
+  const snap=S.undoStack.pop();
+  applyStateSnapshot(snap);
+  persistUndoStack();
+  persistRedoStack();
+  recomputeMatching();updateStats();renderCorr();updateUndoBtn();updateRedoBtn();
   addHist('ALL','modifie','↩ Annulation de la dernière action');
+}
+// R57: rétablit la dernière action annulée via undoLast(). Symétrique :
+// repousse l'état courant sur undoStack avant de restaurer l'état annulé,
+// pour pouvoir annuler à nouveau le rétablissement lui-même si besoin.
+function redoLast(){
+  if(!S.redoStack||!S.redoStack.length){alert('Aucune action à rétablir.');return;}
+  if(!S.undoStack) S.undoStack=[];
+  S.undoStack.push(captureStateSnapshot());
+  if(S.undoStack.length>20) S.undoStack.shift();
+  const snap=S.redoStack.pop();
+  applyStateSnapshot(snap);
+  persistUndoStack();
+  persistRedoStack();
+  recomputeMatching();updateStats();renderCorr();updateUndoBtn();updateRedoBtn();
+  addHist('ALL','modifie','↪ Rétablissement de la dernière annulation');
 }
 function updateUndoBtn(){
   const btn=document.getElementById('btn-undo');
   if(btn){btn.disabled=!(S.undoStack&&S.undoStack.length);btn.style.opacity=btn.disabled?'0.4':'1';}
+}
+function updateRedoBtn(){
+  const btn=document.getElementById('btn-redo');
+  if(btn){btn.disabled=!(S.redoStack&&S.redoStack.length);btn.style.opacity=btn.disabled?'0.4':'1';}
 }
 function openHistModal(){
   const icons={valide:'✅',revoir:'🔄',refuse:'❌',modifie:'✏️'};
@@ -5587,12 +5644,15 @@ function processCsvIA(file){
 // transmission du projet.
 
 
-// Raccourci clavier Ctrl+Z = Annuler la derniere action
+// Raccourcis clavier Ctrl+Z = Annuler, Ctrl+Y / Ctrl+Shift+Z = Rétablir
+// (Ctrl+Shift+Z est la convention macOS/plupart des navigateurs, Ctrl+Y celle
+// de Windows — les deux sont acceptées pour ne pas avoir à en deviner une).
 document.addEventListener('click',function(e){
   if(!e.target.closest('#kw-dropdown')&&e.target.id!=='kw-filter-input') hideKwDropdown();
 });
 document.addEventListener('keydown',function(e){
-  if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();if(typeof undoLast==='function')undoLast();}
+  if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key==='z'){e.preventDefault();if(typeof undoLast==='function')undoLast();}
+  else if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.shiftKey&&e.key==='Z'))){e.preventDefault();if(typeof redoLast==='function')redoLast();}
 });
 </script>
 
@@ -5887,11 +5947,13 @@ async function selectProject(projectId) {
   applyProjectSettings((window._projects||[]).find(p=>p.id===projectId));
   subscribeToRealtime();
   renderProjectBadge();
-  // R51: pile d'annulation propre à ce projet (clé localStorage scopée par
-  // CURRENT_PROJECT_ID) — volontairement pas dans loadProjectState() elle-
-  // même, qui est aussi appelée à chaque changement distant reçu en temps
-  // réel (onRemoteChange) et ne doit pas réinitialiser l'undo en cours.
+  // R51/R57: piles d'annulation/rétablissement propres à ce projet (clés
+  // localStorage scopées par CURRENT_PROJECT_ID) — volontairement pas dans
+  // loadProjectState() elle-même, qui est aussi appelée à chaque changement
+  // distant reçu en temps réel (onRemoteChange) et ne doit pas réinitialiser
+  // l'undo/redo en cours.
   if (typeof restoreUndoStack === 'function') restoreUndoStack();
+  if (typeof restoreRedoStack === 'function') restoreRedoStack();
 }
 
 /** Recharge l'état du projet actuellement sélectionné depuis Supabase
